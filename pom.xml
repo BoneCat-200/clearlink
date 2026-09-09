@@ -7,6 +7,12 @@
     <groupId>com.gugucat.shortlink</groupId>
     <artifactId>shortlink-l</artifactId>
     <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging> <!--  父模块不需要打包  -->
+    <modules>
+        <module>admin</module>
+        <module>gateway</module>
+        <module>project</module>
+    </modules>
 
     <properties>
         <java.version>17</java.version>
@@ -23,6 +29,7 @@
         <redisson.version>3.21.3</redisson.version>
         <guava.version>30.0-jre</guava.version>
     </properties>
+
 
     <dependencyManagement>
         <dependencies>
