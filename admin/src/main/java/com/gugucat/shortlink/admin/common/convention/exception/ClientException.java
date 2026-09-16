@@ -10,7 +10,7 @@ import com.gugucat.shortlink.admin.common.convention.errorcode.IErrorCode;
 public class ClientException extends AbstractException {
 
     /**
-     * 构造方法：错误码对象
+     * 构造方法：错误码枚举对象
      * @param errorCode
      */
     public ClientException(IErrorCode errorCode) {
