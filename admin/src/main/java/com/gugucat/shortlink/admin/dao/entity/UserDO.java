@@ -7,7 +7,7 @@ import lombok.Data;
  * 用户对象
  */
 @Data
-@TableName("t_user_1") // 映射表名
+@TableName("t_user_0") // 映射表名
 public class UserDO {
 
     /**

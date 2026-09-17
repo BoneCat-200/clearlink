@@ -1,5 +1,7 @@
 package com.gugucat.shortlink.admin.dto.reps;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.gugucat.shortlink.admin.common.serialize.PhoneDesensitizationSerializer;
 import lombok.Data;
 
 /**
@@ -26,6 +28,7 @@ public class UserRespDTO {
     /**
      * `phone` varchar (128) DEFAULT NULL COMMENT `手机号`
      */
+    @JsonSerialize(using = PhoneDesensitizationSerializer.class)    // 手机号脱敏
     private String phone;
 
     /**
