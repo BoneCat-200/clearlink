@@ -26,4 +26,11 @@ public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements 
         BeanUtils.copyProperties(userDO, result);   // 将userDO的同名字段映射到result
         return result;
     }
+
+    @Override
+    public boolean hasUserName(String username) {
+        LambdaQueryWrapper<UserDO> eq = Wrappers.lambdaQuery(UserDO.class)
+                .eq(UserDO::getUsername, username);
+        return baseMapper.selectOne(eq) != null;
+    }
 }
