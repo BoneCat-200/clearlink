@@ -9,11 +9,18 @@ import com.gugucat.shortlink.admin.dao.entity.UserDO;
 import com.gugucat.shortlink.admin.dao.mapper.UserMapper;
 import com.gugucat.shortlink.admin.dto.reps.UserRespDTO;
 import com.gugucat.shortlink.admin.service.UserService;
+import lombok.RequiredArgsConstructor;
+import org.redisson.api.RBloomFilter;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
+
 @Service
+@RequiredArgsConstructor
 public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements UserService {
+
+    private final RBloomFilter<String> userRegisterCachePenetrationBloomFilter;
+
     @Override
     public UserRespDTO getUserByUsername(String username) {
         LambdaQueryWrapper<UserDO> eq = Wrappers.lambdaQuery(UserDO.class)
@@ -29,8 +36,6 @@ public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements 
 
     @Override
     public boolean hasUserName(String username) {
-        LambdaQueryWrapper<UserDO> eq = Wrappers.lambdaQuery(UserDO.class)
-                .eq(UserDO::getUsername, username);
-        return baseMapper.selectOne(eq) != null;
+        return userRegisterCachePenetrationBloomFilter.contains(username);
     }
 }

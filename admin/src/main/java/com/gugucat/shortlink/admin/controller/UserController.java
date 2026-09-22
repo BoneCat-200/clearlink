@@ -25,6 +25,9 @@ public class UserController {
     }
 
 
+    /**
+     * 校验用户名是否存在
+     */
     @GetMapping("/api/shortlink/v1/user/has-username")
     public Result hasUserName(@RequestParam("username") String username) {
         return Results.success(userService.hasUserName(username));
