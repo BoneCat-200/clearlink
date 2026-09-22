@@ -1,5 +1,6 @@
 package com.gugucat.shortlink.admin.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -7,6 +8,7 @@ import com.gugucat.shortlink.admin.common.convention.exception.ClientException;
 import com.gugucat.shortlink.admin.common.enums.UserErrorCodeEnum;
 import com.gugucat.shortlink.admin.dao.entity.UserDO;
 import com.gugucat.shortlink.admin.dao.mapper.UserMapper;
+import com.gugucat.shortlink.admin.dto.reg.UserRegisterReqDTO;
 import com.gugucat.shortlink.admin.dto.reps.UserRespDTO;
 import com.gugucat.shortlink.admin.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -37,5 +39,18 @@ public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements 
     @Override
     public boolean hasUserName(String username) {
         return userRegisterCachePenetrationBloomFilter.contains(username);
+    }
+
+    @Override
+    public void register(UserRegisterReqDTO requestParam) {
+        if (hasUserName(requestParam.getUsername())){
+            throw new ClientException(UserErrorCodeEnum.USER_NAME_EXIST);
+        }
+        int insert = baseMapper.insert(BeanUtil.toBean(requestParam, UserDO.class));    // 将请求参数转换为UserDO并插入数据库
+        if (insert < 1) {
+            throw new ClientException(UserErrorCodeEnum.USER_EXIST);
+        }
+        userRegisterCachePenetrationBloomFilter.add(requestParam.getUsername());    // 将用户名添加到布隆过滤器中
+
     }
 }

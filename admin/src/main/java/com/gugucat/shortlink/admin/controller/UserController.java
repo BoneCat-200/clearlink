@@ -2,6 +2,7 @@ package com.gugucat.shortlink.admin.controller;
 
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.common.convention.result.Results;
+import com.gugucat.shortlink.admin.dto.reg.UserRegisterReqDTO;
 import com.gugucat.shortlink.admin.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -19,7 +20,7 @@ public class UserController {
     /**
      * 根据用户名查询用户信息
      */
-    @GetMapping("/api/shortlink/v1/user/{username}")
+    @GetMapping("/api/shortlink/v0.1/user/{username}")
     public Result getUserByUsername(@PathVariable("username") String username) {
         return Results.success(userService.getUserByUsername(username));
     }
@@ -28,9 +29,18 @@ public class UserController {
     /**
      * 校验用户名是否存在
      */
-    @GetMapping("/api/shortlink/v1/user/has-username")
+    @GetMapping("/api/shortlink/v0.1/user/has-username")
     public Result hasUserName(@RequestParam("username") String username) {
         return Results.success(userService.hasUserName(username));
+    }
+
+    /**
+     * 用户注册
+     */
+    @PostMapping("/api/shortlink/v0.1/user/register")
+    public Result register(@RequestBody UserRegisterReqDTO requestParam) {
+        userService.register(requestParam);
+        return Results.success();
     }
 
 }

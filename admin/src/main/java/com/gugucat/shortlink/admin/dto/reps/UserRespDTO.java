@@ -28,7 +28,7 @@ public class UserRespDTO {
     /**
      * `phone` varchar (128) DEFAULT NULL COMMENT `手机号`
      */
-    @JsonSerialize(using = PhoneDesensitizationSerializer.class)    // 手机号脱敏
+    @JsonSerialize(using = PhoneDesensitizationSerializer.class)    // 指定序列化器：手机号脱敏
     private String phone;
 
     /**

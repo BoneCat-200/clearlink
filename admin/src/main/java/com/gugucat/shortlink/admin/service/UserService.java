@@ -2,6 +2,7 @@ package com.gugucat.shortlink.admin.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.gugucat.shortlink.admin.dao.entity.UserDO;
+import com.gugucat.shortlink.admin.dto.reg.UserRegisterReqDTO;
 import com.gugucat.shortlink.admin.dto.reps.UserRespDTO;
 
 
@@ -23,4 +24,11 @@ public interface UserService extends IService<UserDO> {
      * @return boolean 是否存在：true表示存在，false表示不存在
      */
     boolean hasUserName(String username);
+
+    /**
+     * 用户注册
+     * @param requestParam 用户注册请求参数
+     */
+    void register(UserRegisterReqDTO requestParam);
+
 }
