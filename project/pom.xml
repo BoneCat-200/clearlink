@@ -5,11 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>com.gugucat.shortlink</groupId>
-        <artifactId>shortlink-l</artifactId>
+        <artifactId>clearlink</artifactId>
         <version>1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>shortlink-project</artifactId>
+    <artifactId>clearlink-project</artifactId>
 
     <dependencies>
         <dependency>
