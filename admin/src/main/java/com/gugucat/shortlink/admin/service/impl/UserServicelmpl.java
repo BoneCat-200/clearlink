@@ -9,6 +9,7 @@ import com.gugucat.shortlink.admin.common.enums.UserErrorCodeEnum;
 import com.gugucat.shortlink.admin.dao.entity.UserDO;
 import com.gugucat.shortlink.admin.dao.mapper.UserMapper;
 import com.gugucat.shortlink.admin.dto.reg.UserRegisterReqDTO;
+import com.gugucat.shortlink.admin.dto.reg.UserUpdateReqDTO;
 import com.gugucat.shortlink.admin.dto.reps.UserRespDTO;
 import com.gugucat.shortlink.admin.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -67,5 +68,15 @@ public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements 
         }
 
 
+    }
+
+    @Override
+    public void updateUser(UserUpdateReqDTO requestParam) {
+        // TODO 校验用户名是否登录
+
+        // 根据用户名更新
+        LambdaQueryWrapper<UserDO> eq = Wrappers.lambdaQuery(UserDO.class)
+                .eq(UserDO::getUsername, requestParam.getUsername());
+        baseMapper.update(BeanUtil.toBean(requestParam, UserDO.class), eq);
     }
 }

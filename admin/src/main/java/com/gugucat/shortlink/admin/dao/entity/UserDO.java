@@ -58,7 +58,7 @@ public class UserDO {
     /**
      * `update_time` datetime DEFAULT NULL COMMENT `修改时间`
      */
-    @TableField(fill = FieldFill.INSERT)
+    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 
     /**

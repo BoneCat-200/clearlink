@@ -3,6 +3,7 @@ package com.gugucat.shortlink.admin.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.gugucat.shortlink.admin.dao.entity.UserDO;
 import com.gugucat.shortlink.admin.dto.reg.UserRegisterReqDTO;
+import com.gugucat.shortlink.admin.dto.reg.UserUpdateReqDTO;
 import com.gugucat.shortlink.admin.dto.reps.UserRespDTO;
 
 
@@ -31,4 +32,9 @@ public interface UserService extends IService<UserDO> {
      */
     void register(UserRegisterReqDTO requestParam);
 
+    /**
+     * 更新用户信息
+     * @param requestParam 用户更新请求参数
+     */
+    void updateUser(UserUpdateReqDTO requestParam);
 }
