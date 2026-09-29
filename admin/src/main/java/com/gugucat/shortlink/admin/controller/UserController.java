@@ -2,8 +2,10 @@ package com.gugucat.shortlink.admin.controller;
 
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.common.convention.result.Results;
+import com.gugucat.shortlink.admin.dto.reg.UserLoginReqDTO;
 import com.gugucat.shortlink.admin.dto.reg.UserRegisterReqDTO;
 import com.gugucat.shortlink.admin.dto.reg.UserUpdateReqDTO;
+import com.gugucat.shortlink.admin.dto.reps.UserLoginRespDTO;
 import com.gugucat.shortlink.admin.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -51,6 +53,31 @@ public class UserController {
     public Result updateUser(@RequestBody UserUpdateReqDTO requestParam) {
         userService.updateUser(requestParam);
         return Results.success();
+    }
+
+    /**
+     * 用户登录
+     */
+    @PostMapping("/api/clearlink/v0.1/user/login")
+    public Result<UserLoginRespDTO> login(@RequestBody UserLoginReqDTO requestParam) {
+        return Results.success(userService.login(requestParam));
+    }
+
+    /**
+     * 检查用户是否已登录
+     */
+    @GetMapping("/api/clearlink/v0.1/user/login/check")
+    // TODO 将token封装到请求头中
+    public Result<Boolean> checkLogin(@RequestParam("username") String username, @RequestParam("token") String token) {
+        return Results.success(userService.checkLogin(username, token));
+    }
+
+    /**
+     * 用户登出
+     */
+    @DeleteMapping("/api/clearlink/v0.1/user/logout")
+    public Result<Void> logout(@RequestParam("username") String username, @RequestParam("token") String token) {
+        return Results.success(userService.logout(username, token));
     }
 
 
