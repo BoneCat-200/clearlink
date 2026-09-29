@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
  * 用户控制层
  */
 @RestController
-@RequiredArgsConstructor
+@RequiredArgsConstructor // 生成构造函数，包含所有 final 字段
 public class UserController {
 
     private final UserService userService;
