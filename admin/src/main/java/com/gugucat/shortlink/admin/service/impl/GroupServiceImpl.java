@@ -1,14 +1,18 @@
 package com.gugucat.shortlink.admin.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.admin.dao.entity.GroupDO;
 import com.gugucat.shortlink.admin.dao.mapper.GroupMapper;
+import com.gugucat.shortlink.admin.dto.reps.LinkGroupRespDTO;
 import com.gugucat.shortlink.admin.service.GroupService;
 import com.gugucat.shortlink.admin.util.RandomGIDUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 /**
  * 短链接分组业务层实现
@@ -25,10 +29,24 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
         }while (hasGid(gid));   //  循环生成 gid，直到生成的 gid 不存在于数据库中
         GroupDO groupDO = GroupDO.builder()
                 .gid(gid)
+                .sortOrder(0)
+                // TODO 设置所属用户名
                 .name(groupName)
                 .build();
         baseMapper.insert(groupDO);
     }
+
+    @Override
+    public List<LinkGroupRespDTO> listGroup() {
+        LambdaQueryWrapper<GroupDO> eq = Wrappers.lambdaQuery(GroupDO.class)
+                .eq(GroupDO::getDelFlag, 0)
+                // TODO 从请求中获取当前登录用户
+                .eq(GroupDO::getUsername, null)
+                .orderByAsc(GroupDO::getSortOrder,GroupDO::getUpdateTime);
+        List<GroupDO> groupDOList = baseMapper.selectList(eq);
+        return BeanUtil.copyToList(groupDOList, LinkGroupRespDTO.class);
+    }
+
 
     /**
      * 检查分组gid是否已存在

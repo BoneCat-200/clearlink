@@ -2,12 +2,16 @@ package com.gugucat.shortlink.admin.controller;
 
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.common.convention.result.Results;
+import com.gugucat.shortlink.admin.dto.reps.LinkGroupRespDTO;
 import com.gugucat.shortlink.admin.dto.req.GroupSaveReqDTO;
 import com.gugucat.shortlink.admin.service.GroupService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 
 /**
@@ -32,9 +36,9 @@ public class GroupController {
     /**
      * 查询分组
      */
-    public Result queryGroup() {
-
-        return Results.success();
+    @GetMapping("/api/clearlink/v0.1/group")
+    public Result<List<LinkGroupRespDTO>> listGroup() {
+        return Results.success(groupService.listGroup());
     }
 
 
