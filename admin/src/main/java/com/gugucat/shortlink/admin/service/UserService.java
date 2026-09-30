@@ -2,9 +2,9 @@ package com.gugucat.shortlink.admin.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.gugucat.shortlink.admin.dao.entity.UserDO;
-import com.gugucat.shortlink.admin.dto.reg.UserLoginReqDTO;
-import com.gugucat.shortlink.admin.dto.reg.UserRegisterReqDTO;
-import com.gugucat.shortlink.admin.dto.reg.UserUpdateReqDTO;
+import com.gugucat.shortlink.admin.dto.req.UserLoginReqDTO;
+import com.gugucat.shortlink.admin.dto.req.UserRegisterReqDTO;
+import com.gugucat.shortlink.admin.dto.req.UserUpdateReqDTO;
 import com.gugucat.shortlink.admin.dto.reps.UserLoginRespDTO;
 import com.gugucat.shortlink.admin.dto.reps.UserRespDTO;
 
@@ -61,5 +61,5 @@ public interface UserService extends IService<UserDO> {
      * @param token 登录令牌
      * @return Void
      */
-    Void logout(String username, String token);
+    void logout(String username, String token);
 }

@@ -2,9 +2,9 @@ package com.gugucat.shortlink.admin.controller;
 
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.common.convention.result.Results;
-import com.gugucat.shortlink.admin.dto.reg.UserLoginReqDTO;
-import com.gugucat.shortlink.admin.dto.reg.UserRegisterReqDTO;
-import com.gugucat.shortlink.admin.dto.reg.UserUpdateReqDTO;
+import com.gugucat.shortlink.admin.dto.req.UserLoginReqDTO;
+import com.gugucat.shortlink.admin.dto.req.UserRegisterReqDTO;
+import com.gugucat.shortlink.admin.dto.req.UserUpdateReqDTO;
 import com.gugucat.shortlink.admin.dto.reps.UserLoginRespDTO;
 import com.gugucat.shortlink.admin.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -76,8 +76,9 @@ public class UserController {
      * 用户登出
      */
     @DeleteMapping("/api/clearlink/v0.1/user/logout")
-    public Result<Void> logout(@RequestParam("username") String username, @RequestParam("token") String token) {
-        return Results.success(userService.logout(username, token));
+    public Result logout(@RequestParam("username") String username, @RequestParam("token") String token) {
+        userService.logout(username, token);
+        return Results.success();
     }
 
 

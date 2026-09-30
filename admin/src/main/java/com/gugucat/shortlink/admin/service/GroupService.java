@@ -8,4 +8,9 @@ import com.gugucat.shortlink.admin.dao.entity.GroupDO;
  */
 
 public interface GroupService extends IService<GroupDO> {
+
+    /**
+     * 创建分组
+     */
+    void saveGroup(String groupName);
 }

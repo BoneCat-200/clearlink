@@ -9,9 +9,9 @@ import com.gugucat.shortlink.admin.common.convention.exception.ClientException;
 import com.gugucat.shortlink.admin.common.enums.UserErrorCodeEnum;
 import com.gugucat.shortlink.admin.dao.entity.UserDO;
 import com.gugucat.shortlink.admin.dao.mapper.UserMapper;
-import com.gugucat.shortlink.admin.dto.reg.UserLoginReqDTO;
-import com.gugucat.shortlink.admin.dto.reg.UserRegisterReqDTO;
-import com.gugucat.shortlink.admin.dto.reg.UserUpdateReqDTO;
+import com.gugucat.shortlink.admin.dto.req.UserLoginReqDTO;
+import com.gugucat.shortlink.admin.dto.req.UserRegisterReqDTO;
+import com.gugucat.shortlink.admin.dto.req.UserUpdateReqDTO;
 import com.gugucat.shortlink.admin.dto.reps.UserLoginRespDTO;
 import com.gugucat.shortlink.admin.dto.reps.UserRespDTO;
 import com.gugucat.shortlink.admin.service.UserService;
@@ -125,7 +125,7 @@ public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements 
     }
 
     @Override
-    public Void logout(String username, String token) {
+    public void logout(String username, String token) {
         if (checkLogin(username, token)){
             stringRedisTemplate.delete(USER_LOGIN_KEY + username);
         }

@@ -1,4 +1,4 @@
-package com.gugucat.shortlink.admin.dto.reg;
+package com.gugucat.shortlink.admin.dto.req;
 
 import lombok.Data;
 

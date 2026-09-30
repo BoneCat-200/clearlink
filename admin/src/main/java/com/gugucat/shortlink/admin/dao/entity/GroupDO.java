@@ -1,18 +1,21 @@
 package com.gugucat.shortlink.admin.dao.entity;
 
-import com.baomidou.mybatisplus.annotation.FieldFill;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.gugucat.shortlink.admin.common.database.BaseDO;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
-
-import java.time.LocalDateTime;
+import lombok.NoArgsConstructor;
 
 /**
  * 短链接分组对象
  */
 @Data
-@TableName("t_group")
-public class GroupDO {
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@TableName("t_group_0")
+public class GroupDO extends BaseDO {
 
     /**
      * `id` bigint (20) NOT NULL AUTO_INCREMENT COMMENT `ID`
@@ -39,22 +42,5 @@ public class GroupDO {
      */
     private Integer sortOrder;
 
-    /**
-     * `create_time` datetime DEFAULT NULL COMMENT `创建时间`
-     */
-    @TableField(fill = FieldFill.INSERT)
-    private LocalDateTime createTime;
-
-    /**
-     * `update_time` datetime DEFAULT NULL COMMENT `修改时间`
-     */
-    @TableField(fill = FieldFill.INSERT_UPDATE)
-    private LocalDateTime updateTime;
-
-    /**
-     * `del_flag` tinyint (1) DEFAULT NULL COMMENT `删除标识 0：未删除 1：已删除`
-     */
-    @TableField(fill = FieldFill.INSERT)
-    private Integer delFlag;
 
 }

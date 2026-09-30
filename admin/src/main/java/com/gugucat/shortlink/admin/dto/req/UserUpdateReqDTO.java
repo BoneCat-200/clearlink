@@ -1,9 +1,9 @@
-package com.gugucat.shortlink.admin.dto.reg;
+package com.gugucat.shortlink.admin.dto.req;
 
 import lombok.Data;
 
 @Data
-public class UserRegisterReqDTO {
+public class UserUpdateReqDTO {
     /**
      * `username` varchar (256) DEFAULT NULL COMMENT `用户名`
      */
