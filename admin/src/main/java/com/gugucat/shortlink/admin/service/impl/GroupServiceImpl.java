@@ -4,6 +4,7 @@ import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.gugucat.shortlink.admin.common.biz.user.UserContext;
 import com.gugucat.shortlink.admin.dao.entity.GroupDO;
 import com.gugucat.shortlink.admin.dao.mapper.GroupMapper;
 import com.gugucat.shortlink.admin.dto.reps.LinkGroupRespDTO;
@@ -30,7 +31,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
         GroupDO groupDO = GroupDO.builder()
                 .gid(gid)
                 .sortOrder(0)
-                // TODO 设置所属用户名
+                .username(UserContext.getUsername())
                 .name(groupName)
                 .build();
         baseMapper.insert(groupDO);
@@ -40,8 +41,7 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
     public List<LinkGroupRespDTO> listGroup() {
         LambdaQueryWrapper<GroupDO> eq = Wrappers.lambdaQuery(GroupDO.class)
                 .eq(GroupDO::getDelFlag, 0)
-                // TODO 从请求中获取当前登录用户
-                .eq(GroupDO::getUsername, null)
+                .eq(GroupDO::getUsername, UserContext.getUsername())
                 .orderByAsc(GroupDO::getSortOrder,GroupDO::getUpdateTime);
         List<GroupDO> groupDOList = baseMapper.selectList(eq);
         return BeanUtil.copyToList(groupDOList, LinkGroupRespDTO.class);
@@ -55,8 +55,11 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
      */
     private boolean hasGid(String gid) {
         LambdaQueryWrapper<GroupDO> eq = Wrappers.lambdaQuery(GroupDO.class)
-                .eq(GroupDO::getGid, gid);
-        return baseMapper.exists(eq);
+                .eq(GroupDO::getGid, gid)
+                .eq(GroupDO::getUsername,UserContext.getUsername());
+        GroupDO hasGroupFlag = baseMapper.selectOne(eq);
+        return hasGroupFlag != null;
+//        return baseMapper.exists(eq);
     }
 
 
