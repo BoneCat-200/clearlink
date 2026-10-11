@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("t_group_0")
+@TableName("t_group")
 public class GroupDO extends BaseDO {
 
     /**
