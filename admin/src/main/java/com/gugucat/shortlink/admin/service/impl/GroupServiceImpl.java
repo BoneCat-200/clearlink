@@ -7,7 +7,8 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.admin.common.biz.user.UserContext;
 import com.gugucat.shortlink.admin.dao.entity.GroupDO;
 import com.gugucat.shortlink.admin.dao.mapper.GroupMapper;
-import com.gugucat.shortlink.admin.dto.reps.LinkGroupRespDTO;
+import com.gugucat.shortlink.admin.dto.req.GroupUpdateReqDTO;
+import com.gugucat.shortlink.admin.dto.resp.LinkGroupRespDTO;
 import com.gugucat.shortlink.admin.service.GroupService;
 import com.gugucat.shortlink.admin.util.RandomGIDUtils;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +46,18 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
                 .orderByAsc(GroupDO::getSortOrder,GroupDO::getUpdateTime);
         List<GroupDO> groupDOList = baseMapper.selectList(eq);
         return BeanUtil.copyToList(groupDOList, LinkGroupRespDTO.class);
+    }
+
+    @Override
+    public void updateGroup(GroupUpdateReqDTO requestParam) {
+        LambdaQueryWrapper<GroupDO> eq = Wrappers.lambdaQuery(GroupDO.class)
+                .eq(GroupDO::getGid, requestParam.getGid())
+                .eq(GroupDO::getUsername, UserContext.getUsername())    // 仅允许修改当前登录用户的分组
+                .eq(GroupDO::getDelFlag, 0);    // 仅修改未删除的分组
+        GroupDO groupDO = GroupDO.builder()
+                .name(requestParam.getName())
+                .build();
+        baseMapper.update(groupDO, eq);   // 仅更新 name 字段，其余字段为 null 不参与更新
     }
 
 

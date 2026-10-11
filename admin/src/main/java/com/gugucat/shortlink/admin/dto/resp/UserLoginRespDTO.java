@@ -1,4 +1,4 @@
-package com.gugucat.shortlink.admin.dto.reps;
+package com.gugucat.shortlink.admin.dto.resp;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

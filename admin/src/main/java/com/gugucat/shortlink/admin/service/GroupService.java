@@ -2,7 +2,8 @@ package com.gugucat.shortlink.admin.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.gugucat.shortlink.admin.dao.entity.GroupDO;
-import com.gugucat.shortlink.admin.dto.reps.LinkGroupRespDTO;
+import com.gugucat.shortlink.admin.dto.req.GroupUpdateReqDTO;
+import com.gugucat.shortlink.admin.dto.resp.LinkGroupRespDTO;
 
 import java.util.List;
 
@@ -21,4 +22,10 @@ public interface GroupService extends IService<GroupDO> {
      * 查询分组
      */
     List<LinkGroupRespDTO> listGroup();
+
+    /**
+     * 修改分组
+     * @param requestParam 分组修改请求参数
+     */
+    void updateGroup(GroupUpdateReqDTO requestParam);
 }
