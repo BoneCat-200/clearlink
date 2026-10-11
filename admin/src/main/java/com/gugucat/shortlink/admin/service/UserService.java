@@ -5,8 +5,8 @@ import com.gugucat.shortlink.admin.dao.entity.UserDO;
 import com.gugucat.shortlink.admin.dto.req.UserLoginReqDTO;
 import com.gugucat.shortlink.admin.dto.req.UserRegisterReqDTO;
 import com.gugucat.shortlink.admin.dto.req.UserUpdateReqDTO;
-import com.gugucat.shortlink.admin.dto.reps.UserLoginRespDTO;
-import com.gugucat.shortlink.admin.dto.reps.UserRespDTO;
+import com.gugucat.shortlink.admin.dto.resp.UserLoginRespDTO;
+import com.gugucat.shortlink.admin.dto.resp.UserRespDTO;
 
 
 /**

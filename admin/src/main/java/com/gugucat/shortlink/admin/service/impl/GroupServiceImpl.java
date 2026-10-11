@@ -2,6 +2,7 @@ package com.gugucat.shortlink.admin.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.admin.common.biz.user.UserContext;
@@ -58,6 +59,16 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
                 .name(requestParam.getName())
                 .build();
         baseMapper.update(groupDO, eq);   // 仅更新 name 字段，其余字段为 null 不参与更新
+    }
+
+    @Override
+    public void deleteGroup(String gid) {
+        LambdaUpdateWrapper<GroupDO> wrapper = Wrappers.lambdaUpdate(GroupDO.class)
+                .set(GroupDO::getDelFlag, 1)    // 逻辑删除：将 delFlag 置为 1
+                .eq(GroupDO::getGid, gid)
+                .eq(GroupDO::getUsername, UserContext.getUsername())    // 仅允许删除当前登录用户的分组
+                .eq(GroupDO::getDelFlag, 0);    // 仅删除未删除的分组
+        baseMapper.update(null, wrapper);   // 按条件逻辑删除，不校验影响行数（不存在则静默返回）
     }
 
 

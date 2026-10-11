@@ -7,10 +7,12 @@ import com.gugucat.shortlink.admin.dto.req.GroupUpdateReqDTO;
 import com.gugucat.shortlink.admin.dto.resp.LinkGroupRespDTO;
 import com.gugucat.shortlink.admin.service.GroupService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -57,8 +59,9 @@ public class GroupController {
     /**
      * 删除分组
      */
-    public Result deleteGroup() {
-
+    @DeleteMapping("/api/clearlink/admin/v0.1/group")
+    public Result deleteGroup(@RequestParam("gid") String gid) {
+        groupService.deleteGroup(gid);
         return Results.success();
     }
 
