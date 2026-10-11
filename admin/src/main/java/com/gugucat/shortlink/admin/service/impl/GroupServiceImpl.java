@@ -8,12 +8,14 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.admin.common.biz.user.UserContext;
 import com.gugucat.shortlink.admin.dao.entity.GroupDO;
 import com.gugucat.shortlink.admin.dao.mapper.GroupMapper;
+import com.gugucat.shortlink.admin.dto.req.GroupSortReqDTO;
 import com.gugucat.shortlink.admin.dto.req.GroupUpdateReqDTO;
 import com.gugucat.shortlink.admin.dto.resp.LinkGroupRespDTO;
 import com.gugucat.shortlink.admin.service.GroupService;
 import com.gugucat.shortlink.admin.util.RandomGIDUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -69,6 +71,21 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
                 .eq(GroupDO::getUsername, UserContext.getUsername())    // 仅允许删除当前登录用户的分组
                 .eq(GroupDO::getDelFlag, 0);    // 仅删除未删除的分组
         baseMapper.update(null, wrapper);   // 按条件逻辑删除，不校验影响行数（不存在则静默返回）
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void sortGroup(List<GroupSortReqDTO> requestParam) {
+        requestParam.forEach(each -> {  // 逐条更新各分组的排序号
+            LambdaQueryWrapper<GroupDO> eq = Wrappers.lambdaQuery(GroupDO.class)
+                    .eq(GroupDO::getGid, each.getGid())
+                    .eq(GroupDO::getUsername, UserContext.getUsername())    // 仅允许修改当前登录用户的分组
+                    .eq(GroupDO::getDelFlag, 0);    // 仅修改未删除的分组
+            GroupDO groupDO = GroupDO.builder()
+                    .sortOrder(each.getSortOrder())
+                    .build();
+            baseMapper.update(groupDO, eq);   // 仅更新 sortOrder 字段
+        });
     }
 
 

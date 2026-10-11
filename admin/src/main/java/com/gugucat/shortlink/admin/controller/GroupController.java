@@ -3,6 +3,7 @@ package com.gugucat.shortlink.admin.controller;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.common.convention.result.Results;
 import com.gugucat.shortlink.admin.dto.req.GroupSaveReqDTO;
+import com.gugucat.shortlink.admin.dto.req.GroupSortReqDTO;
 import com.gugucat.shortlink.admin.dto.req.GroupUpdateReqDTO;
 import com.gugucat.shortlink.admin.dto.resp.LinkGroupRespDTO;
 import com.gugucat.shortlink.admin.service.GroupService;
@@ -62,6 +63,16 @@ public class GroupController {
     @DeleteMapping("/api/clearlink/admin/v0.1/group")
     public Result deleteGroup(@RequestParam("gid") String gid) {
         groupService.deleteGroup(gid);
+        return Results.success();
+    }
+
+
+    /**
+     * 分组排序
+     */
+    @PostMapping("/api/clearlink/admin/v0.1/group/sort")
+    public Result sortGroup(@RequestBody List<GroupSortReqDTO> requestParam) {
+        groupService.sortGroup(requestParam);
         return Results.success();
     }
 

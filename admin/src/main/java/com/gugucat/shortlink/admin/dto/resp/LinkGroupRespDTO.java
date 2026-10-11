@@ -1,5 +1,8 @@
 package com.gugucat.shortlink.admin.dto.resp;
 
+import lombok.Data;
+
+@Data
 public class LinkGroupRespDTO {
     /**
      * `gid` varchar (32) DEFAULT NULL COMMENT `分组标识`
