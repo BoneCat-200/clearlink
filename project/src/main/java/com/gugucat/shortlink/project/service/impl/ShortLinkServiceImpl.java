@@ -58,6 +58,11 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         if (StrUtil.isBlank(requestParam.getGid())) {
             throw new ClientException("分组标识不能为空");
         }
+        // 请求 DTO 上没有 Bean Validation（本项目约定必填性由业务代码判定），
+        // 不拦的话空串会建出一条跳转不到的垃圾短链接
+        if (StrUtil.isBlank(requestParam.getOriginUrl())) {
+            throw new ClientException("原始链接不能为空");
+        }
         verificationWhitelist(requestParam.getOriginUrl());
         String shortLinkSuffix = generateSuffix(requestParam);
         String fullShortUrl = createShortLinkDefaultDomain + "/" + shortLinkSuffix;
