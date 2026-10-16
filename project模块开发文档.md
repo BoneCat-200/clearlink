@@ -65,7 +65,7 @@ resources/
 | --- | --------------------------- | -------------- | --- |
 | GET | `/api/clearlink/v0.1/title` | 按 URL 获取网站标题   | ✅   |
 
-### 4.4 短链接监控（写入侧，暂无 HTTP 接口）
+### 4.4 短链接监控（ShortLinkStatsController）
 
 统计是**采集与落库分离**的两段，中间用 Redis Stream 传递：
 
@@ -73,13 +73,17 @@ resources/
 | --- | --- | --- |
 | 采集 | 跳转成功时（三条分支各一次） | `ShortLinkServiceImpl.buildLinkStatsRecordAndSetUser` → `ShortLinkStatsSaveProducer` |
 | 落库 | 消费者监听 `clearlink:stats-stream` | `ShortLinkStatsSaveConsumer.actualSaveShortLinkStats` |
+| 读取 | HTTP 查询 | `ShortLinkStatsServiceImpl.oneShortLinkStats`（11 条聚合查询） |
 
-**读取侧的 HTTP 接口（`/stats`、`/stats/group`、访问日志分页）尚未实现**，属于后续增量，
-所以本阶段没有任何新增的对外接口。
+| 方法  | 路径                            | 说明                                  | 状态  |
+| --- | ----------------------------- | ----------------------------------- | --- |
+| GET | `/api/clearlink/v0.1/stats`   | 单个短链接指定日期内的监控数据（总计 + 10 个维度）        | ✅   |
+
+**分组短链接监控（`/stats/group`）与访问日志分页（`/stats/access-record`）尚未实现**。
 
 ### 4.5 未实现
 
-批量创建（3.1.3）、监控统计的**读取接口**（3.3）、`GET /count`（3.1.6）、
+批量创建（3.1.3）、分组短链接监控（3.3.2）、访问日志分页（3.3.3/3.3.4）、`GET /count`（3.1.6）、
 `/create/by-lock` 教学对比接口（3.1.2）。
 
 **`/create/by-lock` 是刻意留白的**：它是参考实现用来做「布隆过滤器 vs 分布式锁」性能对比的教学接口，
@@ -210,6 +214,57 @@ del_flag=0           del_flag=0             del_time=时间戳
 3. **统计是旁路，任何失败都不能影响跳转**：生产端异常只记日志（跳转照常 302），
    消费端地区查询失败只把地区降级为「未知」，其余维度照常写入。
 
+### 5.7 监控统计的读取侧
+
+`GET /stats` 一次返回整个看板，实现是 **11 条聚合查询 + 内存拼装**，不做预聚合：
+
+| # | 数据 | 来源 |
+| --- | --- | --- |
+| 1 | 每日 pv/uv/uip | `t_link_access_stats` 按 date 汇总 |
+| 2 | 总计 pv/uv/uip | `t_link_access_logs` 重算（`COUNT` / `COUNT(DISTINCT)`） |
+| 3 | 地区分布 | `t_link_locale_stats` 按 province 汇总 |
+| 4 | 小时分布 | `t_link_access_stats` 按 hour 汇总，固定补 24 个 |
+| 5 | 星期分布 | `t_link_access_stats` 按 weekday 汇总，固定补 7 个 |
+| 6 | 高频 IP | `t_link_access_logs` 按 ip 分组，取 Top 5 |
+| 7 | 浏览器分布 | `t_link_browser_stats` |
+| 8 | 操作系统分布 | `t_link_os_stats` |
+| 9 | 设备分布 | `t_link_device_stats` |
+| 10 | 网络分布 | `t_link_network_stats` |
+| 11 | 新老访客 | `t_link_access_logs` 子查询按访客分组后汇总 |
+
+三个容易踩的点：
+
+- **总计为什么从明细表重算，而不是复用累加表**：累加表按「天 + 小时」分行，
+  跨天查询时要再 SUM 一遍，而 `uv`/`uip` 这种去重指标跨天 SUM 是**错的**
+  （同一个人两天都来过会被算两次）。明细表的 `COUNT(DISTINCT)` 才是对的。
+- **新老访客的判断刻意不带查询区间**：要区分「新」「老」必须看该访客的全部历史，
+  只在区间内分组会把他一律算成新访客。
+- **所有明细表的查询都必须带 gid**：`t_link` 是分片表，不带分片键路由不到单表。
+  这也是接口要求传 `gid` 而不是只传短链接的原因。
+
+**固定长度的三个数组是对前端的契约**：`hourStats` 恒为 24 个（下标即小时）、
+`weekdayStats` 恒为 7 个（下标 0 对应周一）、`uvTypeStats` 恒为 2 条（newUser/oldUser）。
+没有数据的档位补 0 而不是省略，前端因此不需要自己补空。
+
+**归属校验**：`checkGroupBelongToUser` 用 `gid + username` 查 `t_group`，
+校验失败抛异常。用户态来自后管经 Feign 透传的请求头（见 5.8）。
+
+### 5.8 中台的用户态
+
+中台自己不做鉴权，也不查用户表。「当前用户是谁」完全来自请求头：
+
+```
+后管 UserTransmitFilter（从登录态解析） → UserContext
+       ↓ OpenFeignConfiguration 写请求头 username/userId/realName
+中台 UserTransmitInterceptor（读请求头） → UserContext → checkGroupBelongToUser
+```
+
+**为什么必须显式透传**：后管调中台是服务间调用，不带 Cookie、也不经过网关。
+这是中台第一个依赖用户态才能工作的接口，在此之前中台完全不需要知道调用者是谁。
+
+两处的实现形式刻意不同（后管用 Filter、中台用 Interceptor）：中台要做归属校验的
+只有 Controller 这一层，Filter 会对所有请求包括跳转生效，没有必要。
+
 ## 6. 开发记录
 
 | 日期         | 功能                         | 说明                                                                                                                                     |
@@ -235,6 +290,9 @@ del_flag=0           del_flag=0             del_time=时间戳
 | 2026-10-16 | 消费统计消息并落入监控表               | `RedisStreamConfiguration`（单线程 + 同步队列 + 丢弃最旧）＋消费组初始化任务＋幂等处理器＋消费者；8 个统计 DO/Mapper＋`LinkStatsTodayService`；`ShortLinkMapper.incrementStats`；project 补 `t_group` 分片规则；`short-link.stats.locale.amap-key` 走环境变量注入 |
 | 2026-10-16 | 高德调用加超时并降级                   | 3 秒超时；失败/未配 key 时地区记「未知」而其余 7 张表照常写；省/市/编码三字段各自判空（参考实现只看 province，会让 `city`/`adcode` 的 `[]` 原样入库）                                        |
 | 2026-10-16 | 修复合规：统计缺跳转记录时不再抛异常          | `t_link_goto` 查不到记录时 WARN 并跳过。抛异常会在单线程消费者上反复失败刷日志，而重试多少次都查不出不存在的记录                                                                     |
+| 2026-10-16 | 中台用户态                        | 新增 `common/biz/user`（`UserContext`/`UserInfoDTO`/`UserTransmitInterceptor`）与 `config/UserConfiguration`。中台此前没有任何用户态，归属校验无从谈起                                  |
+| 2026-10-16 | 单个短链接监控统计接口                  | `GET /stats`；7 个统计 Mapper 补 11 条聚合查询；9 个响应 DTO；`checkGroupBelongToUser` 做归属校验。**修复日期右边界把当天数据排除在外的缺陷**（详见 7.11）                          |
+| 2026-10-16 | 监控接口补入参校验与空值兜底                | 参数缺失 / 日期格式错 / 开始晚于结束抛可读错误；总计查询返回 null 时降级为 0 而不是抛空指针（两张表不同源且落库无事务，存在中间态）                                                    |
 
 ## 7. 注意事项与已知问题
 
@@ -278,8 +336,7 @@ del_flag=0           del_flag=0             del_time=时间戳
 
 `/page` 的 `gid` 完全由调用方给，不校验它是否属于当前用户（`restoreUrl` 不涉及用户态）。
 数据隔离目前只靠「gid 是 6 位随机串、猜不到」。
-（`t_group` 的分片规则已在统计阶段补上，但归属校验要等监控读取接口实现，
-见 4.4 与 4.5。）
+（监控统计接口已加归属校验，见 5.7；分页查询本身仍然没有。）
 
 ### 7.6 老行永久留在原表
 
@@ -345,3 +402,29 @@ del_flag=0           del_flag=0             del_time=时间戳
 - **`t_link_access_logs` 是增长最快的表**（一次跳转一行），且没有任何清理机制。
 - **地区维度在查询失败时记「未知」而不是跳过**，是为了让地区维度的计数合计等于 PV；
   参考实现在高德返回非 10000 时直接不写这一行，会让地区分布静默少计。
+
+### 7.12 监控统计读取侧
+
+- **已修复：日期右边界只给到日期，当天的数据会被全部排除在外**。
+  库里的时间列两类混用：`t_link_access_stats.date` 是 `DATE`，
+  而 `t_link_access_logs.create_time` 是 `DATETIME`。
+  拿 `'yyyy-MM-dd'` 做 `BETWEEN` 的右边界时，`DATE` 列按当天零点比较（当天算在内），
+  `DATETIME` 列也按当天零点比较 —— 当天 00:00 之后的访问全部落在区间外。
+  实测（同一个区间、同一批数据）：按天分布查出 `pv=5`，而总计查询命中 **0 行**。
+  更严重的是总计查询带 `GROUP BY`，命中 0 行时 mapper 返回 `null`，
+  参考实现紧接着就 `.getPv()`，等于「查看今日数据」这个最常用的查询直接 500。
+  修法是把右边界补到 `23:59:59`（已实测：两类列的比较都变成闭区间）。
+- **总计与按天分布的数字可能对不上**，因为它们读的是**两张不同的表**
+  （总计读 `t_link_access_logs`，按天读 `t_link_access_stats`），
+  而消费者的落库**没有加事务**。两张表之间出现中间态时（例如累加表已写、明细表未写），
+  总计会降级成 0、按天分布仍然是正常值。空值兜底只保证不 500，不保证两个数自洽。
+- **`/stats` 一次打 11 条 `GROUP BY` 查询，没有预聚合**。当前可接受
+  （都落在按 `full_short_url` 索引的表上，区间通常是小时级），
+  但不适合「全部短链接横向对比」那类查询。
+- **日期区间没有长度上限**：`startDate` 到 `endDate` 跨 100 年就会生成 3 万多条
+  `daily` 记录。参考实现同样没有限制。
+- **归属校验失败返回的是服务端错误码**：未登录/不属于本人都是 `ServiceException`
+  → `B000001`（系统执行出错），而它实际上是鉴权失败。按错误码没法把它和真正的服务端故障
+  区分开，只能看 message。参考实现就是这么定的，本仓库保持一致未改。
+- **响应里的占比是 0~1 的小数并保留两位**（`1/3` 会得到 `0.33`），不是百分数。
+  统计口径小的维度（例如只有 3 次访问）四舍五入后占比之和可能不等于 1。
