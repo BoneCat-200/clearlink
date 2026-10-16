@@ -77,9 +77,24 @@ util/           # RandomGIDUtils
 | --- | ----------------------------------------- | ------------- | --- |
 | GET | `/api/clearlink/admin/v0.1/title`         | 按 URL 获取网站标题（转发中台抓取） | ✅   |
 
+### 4.4 回收站管理（RecycleBinController）
+
+单条记录的写操作后管只做转发；分页查询需要先按当前用户算出分组集合，走 `RecycleBinService`。
+
+| 方法   | 路径                                              | 说明                                  | 状态  |
+| ---- | ----------------------------------------------- | ----------------------------------- | --- |
+| POST | `/api/clearlink/admin/v0.1/recycle-bin/save`    | 移入回收站（转发中台）                          | ✅   |
+| GET  | `/api/clearlink/admin/v0.1/recycle-bin/page`    | 分页查询（**gidList 由服务端按当前用户分组算出并覆盖客户端传值**） | ✅   |
+| POST | `/api/clearlink/admin/v0.1/recycle-bin/recover` | 从回收站恢复（转发中台）                        | ✅   |
+| POST | `/api/clearlink/admin/v0.1/recycle-bin/remove`  | 从回收站移除，逻辑删除（转发中台）                   | ✅   |
+
+> **接口文档 2.4.2 的 `gidList` 参数实际由服务端覆盖**。文档把它列为请求参数，
+> 但后管一律用当前登录用户自己的分组替换它 —— 否则任何登录用户传别人的 gid 就能看到别人的回收站。
+> 实测：用无分组的账号带伪造 `gidList` 查询，返回空。
+
 ### 4.5 其它（待开发）
 
-回收站（2.4）、监控统计（2.5）、批量创建 + Excel 导出（2.3.2）、`GET /count`、
+监控统计（2.5）、批量创建 + Excel 导出（2.3.2）、`GET /count`、
 `GET /actual/user/{username}` 仍未实现，见《接口文档.md》第 2 节。
 网关（`gateway`）仍是空壳、没有路由与鉴权，当前所有实测都是直连 8002/8001。
 
@@ -87,6 +102,7 @@ util/           # RandomGIDUtils
 
 | 日期         | 功能                | 涉及文件                                                                            | 说明                                                                                                                                                                    |
 | ---------- | ----------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-10-16 | 回收站：移入 / 分页 / 恢复 / 移除 | `remote/dto/req/RecycleBin*ReqDTO`、`remote/dto/req/ShortLinkRecycleBinPageReqDTO`、`controller/RecycleBinController`、`service/RecycleBinService(+Impl)`、`remote` | 四个接口见 §4.4。分页的 gidList 由 `GroupService.listGroup()` 按当前用户算出并覆盖客户端传值；用户无分组时返回空分页（参考实现抛 `ServiceException`，语义不对）。四个写操作的影响行数为 0 时抛可读错误 |
 | 2026-10-16 | 后管联调中台建链         | `pom.xml`、`ShortLinkAdminApplication`、`remote/**`、`ShortLinkController`、`application.yaml` | `POST /admin/v0.1/create`，`@FeignClient(value = "clearlink-project")` 走 Nacos 服务发现；admin 加 openfeign + nacos-discovery + loadbalancer                                       |
 | 2026-10-16 | 分页查询短链接          | `remote/dto/req/ShortLinkPageReqDTO`、`remote/dto/resp/ShortLinkPageRespDTO`、`remote`、`ShortLinkController` | `GET /admin/v0.1/page`，四个查询参数透传给中台                                                                                                                                |
 | 2026-10-16 | 注册时创建默认分组        | `service/GroupService`、`service/impl/GroupServiceImpl`、`service/impl/UserServicelmpl` | `saveGroup` 增加 `(username, groupName)` 重载（注册免鉴权、`UserContext` 为空，归属人必须显式传）；`register` 补 `@Transactional`。**修复了原「注册不建默认分组」的缺陷**                            |
@@ -139,3 +155,10 @@ util/           # RandomGIDUtils
 14. **JBoss/MyBatis-Plus 在 JDK 17 下的 WARN**：查询时会打印
     `Unable to make field private final java.lang.Class java.lang.invoke.SerializedLambda.capturingClass accessible`。
     无害（MyBatis-Plus 有回退路径），要消除需给 JVM 加 `--add-opens java.base/java.lang.invoke=ALL-UNNAMED`。
+15. **从命令行发中文请求体会被编码搞坏**：Git Bash 按 GBK 编码把中文字节发出去，
+    Spring 按 UTF-8 解析，直接报 `JSON parse error: Invalid UTF-8 start byte 0xb5`。
+    这与「`grep` 中文模式匹配不到」「`redis-cli` 中文 key 查不到」是同一个根因。
+    **做功能验证时用 ASCII，中文只在最后的字节级核验（HEX / od）里出现。**
+16. **回收站分页的 gidList 是服务端算的**：写测试数据时要注意，
+    短链接必须建在该用户**真实**的分组 gid 下，自造一个 gid 建链在回收站里是查不到的
+    （短链接列表接口的 gid 是客户端传的，两者行为不同，容易搞混）。
