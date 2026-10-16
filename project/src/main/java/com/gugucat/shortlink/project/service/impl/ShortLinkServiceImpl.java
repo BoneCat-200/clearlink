@@ -328,14 +328,17 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
     }
 
     /**
-     * 短链接不可跳转时的响应
+     * 短链接不可跳转时的响应：重定向到提示页
      * <p>
-     * 当前直接返回 404，后续会改成跳转到提示页。
+     * 用 302 而不是 404：用户点的是一个短链接，看到一张「页面不存在」的页面比看到一个
+     * 浏览器的默认 404 页更有信息量，也便于后续在提示页上做引导。
+     * 所有「不可跳转」的分支都收敛到这里，改文案或改目标页只需要动这一处。
      *
      * @param response HTTP 响应
      */
+    @SneakyThrows   // sendRedirect 声明了受检的 IOException
     private void noFound(ServletResponse response) {
-        ((HttpServletResponse) response).setStatus(HttpServletResponse.SC_NOT_FOUND);
+        ((HttpServletResponse) response).sendRedirect("/page/notfound");
     }
 
     /**
