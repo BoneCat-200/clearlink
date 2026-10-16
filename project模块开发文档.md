@@ -78,12 +78,13 @@ resources/
 | 方法  | 路径                            | 说明                                  | 状态  |
 | --- | ----------------------------- | ----------------------------------- | --- |
 | GET | `/api/clearlink/v0.1/stats`   | 单个短链接指定日期内的监控数据（总计 + 10 个维度）        | ✅   |
+| GET | `/api/clearlink/v0.1/stats/group` | 指定分组指定日期内的监控数据（组内所有短链接之和，9 个维度）   | ✅   |
 
-**分组短链接监控（`/stats/group`）与访问日志分页（`/stats/access-record`）尚未实现**。
+**访问日志分页（`/stats/access-record`）尚未实现**。分组版本不返回 `uvTypeStats`，见 5.7。
 
 ### 4.5 未实现
 
-批量创建（3.1.3）、分组短链接监控（3.3.2）、访问日志分页（3.3.3/3.3.4）、`GET /count`（3.1.6）、
+批量创建（3.1.3）、访问日志分页（3.3.3/3.3.4）、`GET /count`（3.1.6）、
 `/create/by-lock` 教学对比接口（3.1.2）。
 
 **`/create/by-lock` 是刻意留白的**：它是参考实现用来做「布隆过滤器 vs 分布式锁」性能对比的教学接口，
@@ -249,6 +250,28 @@ del_flag=0           del_flag=0             del_time=时间戳
 **归属校验**：`checkGroupBelongToUser` 用 `gid + username` 查 `t_group`，
 校验失败抛异常。用户态来自后管经 Feign 透传的请求头（见 5.8）。
 
+#### 分组版本（`/stats/group`）的三点差别
+
+| | 单个短链接 | 分组 |
+| --- | --- | --- |
+| 过滤条件 | `full_short_url + gid + enable_status` | 只有 `gid`，`enable_status` **写死为 `'0'`** |
+| 聚合层级 | 按 date/hour/weekday 汇总 | 多一层：组内所有短链接再求和 |
+| UV 口径 | 该短链接的去重访客 | 组内去重的访客（同一访客访问组内两个短链接只算一个） |
+| `uvTypeStats` | 返回 | **不返回**（分组的新老访客要按「访客在整个分组上的全部历史」判断，口径不同，参考实现也未实现） |
+| 参数 | `fullShortUrl + gid + enableStatus + 起止日期` | `gid + 起止日期` |
+
+`enable_status` 写死 `'0'` 意味着**回收站里的短链接不计入分组数据**。
+实测：把组内一条短链接移入回收站后，分组数据立刻只剩另一条（`pv` 4→2），
+恢复后又变回 4。
+
+分组查询只打一张物理表 —— `t_link` 按 `gid` 分片，一个分组的所有短链接都在同一张表里。
+
+两个查询入口各有 5 个「维度名 + 计数 + 占比」的分布，换算是完全一样的，
+加上按天/小时/星期的补空逻辑都抽成了共用方法（`buildRatioStats` / `buildDaily` /
+`buildHourStats` / `buildWeekdayStats` / `buildTopIpStats` / `checkAndNormalizeDateRange`）。
+**这不是为了少写代码，而是为了让日期归一化只有一个实现** ——
+右边界那个修复如果各写一遍，迟早只在一边生效。
+
 ### 5.8 中台的用户态
 
 中台自己不做鉴权，也不查用户表。「当前用户是谁」完全来自请求头：
@@ -293,6 +316,9 @@ del_flag=0           del_flag=0             del_time=时间戳
 | 2026-10-16 | 中台用户态                        | 新增 `common/biz/user`（`UserContext`/`UserInfoDTO`/`UserTransmitInterceptor`）与 `config/UserConfiguration`。中台此前没有任何用户态，归属校验无从谈起                                  |
 | 2026-10-16 | 单个短链接监控统计接口                  | `GET /stats`；7 个统计 Mapper 补 11 条聚合查询；9 个响应 DTO；`checkGroupBelongToUser` 做归属校验。**修复日期右边界把当天数据排除在外的缺陷**（详见 7.11）                          |
 | 2026-10-16 | 监控接口补入参校验与空值兜底                | 参数缺失 / 日期格式错 / 开始晚于结束抛可读错误；总计查询返回 null 时降级为 0 而不是抛空指针（两张表不同源且落库无事务，存在中间态）                                                    |
+| 2026-10-16 | 分组短链接监控统计接口                   | `GET /stats/group`；5 个 Mapper 各补对应分组的查询（共 10 条）；返回体复用同一个结构但**不含 `uvTypeStats`**。分组查询写死 `enable_status='0'`，回收站里的短链接不计入（已实测） |
+| 2026-10-16 | 统计服务抽共用方法                     | `buildRatioStats`/`buildDaily`/`buildHourStats`/`buildWeekdayStats`/`buildTopIpStats`/`checkAndNormalizeDateRange`。两个入口的日期归一化必须只有一个实现，否则右边界修复会只在一边生效 |
+| 2026-10-16 | 修复缺 gid 时的误导性报错                  | 归属校验的查询是 `gid = 参数值`，参数为 null 时永远匹配不上，于是「没传 gid」被报成「用户信息与分组标识不匹配」。改为在校验方法最前面判空 |
 
 ## 7. 注意事项与已知问题
 
@@ -418,6 +444,18 @@ del_flag=0           del_flag=0             del_time=时间戳
   （总计读 `t_link_access_logs`，按天读 `t_link_access_stats`），
   而消费者的落库**没有加事务**。两张表之间出现中间态时（例如累加表已写、明细表未写），
   总计会降级成 0、按天分布仍然是正常值。空值兜底只保证不 500，不保证两个数自洽。
+- **`daily[].uv` 与 `daily[].uip` 被系统性高估**（`daily[].pv` 是对的）。
+  按天分布读的是 `t_link_access_stats`，那张表的 `uv`/`uip` 是**按小时去重**的，
+  而去重指标**不可加**：同一访客在两个不同小时各来一次，两小时的 `uv` 各是 1，
+  `SUM` 出来是 2，真实值仍是 1。分组维度还多一层 —— 同一访客访问组内两个短链接，
+  两条链接的 `uv` 会被相加。
+  实测（单链接，同一访客在两个不同小时各访问一次）：总接口返回 `uv=1 uip=1`，
+  而同一个响应里的 `daily[0]` 是 `uv=2 uip=2`，**自相矛盾**。
+  实测（分组，两个短链接）：顶层 `uip=2`（明细表去重，正确），
+  `daily[0].uip=3`（两条链接的 `uip` 相加）。
+  修法是把按天分布也改成从 `t_link_access_logs` 用 `COUNT(DISTINCT)` 按 `DATE(create_time)` 算，
+  代价是日期区间要扫一遍明细表（该表只有 `full_short_url` 索引）——
+  不过同一次请求本来就已经在扫它算总计了。**待决策，暂未改**。
 - **`/stats` 一次打 11 条 `GROUP BY` 查询，没有预聚合**。当前可接受
   （都落在按 `full_short_url` 索引的表上，区间通常是小时级），
   但不适合「全部短链接横向对比」那类查询。
