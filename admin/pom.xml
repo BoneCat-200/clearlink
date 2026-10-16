@@ -58,7 +58,23 @@
             <artifactId>fastjson2</artifactId>
         </dependency>
 
+        <!-- 后管通过 Feign 调用短链接中台（project 模块） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
 
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+
+        <!-- @FeignClient 只给服务名（不写 url）时必须有它，否则启动即报
+             「No Feign Client for loadBalancing defined」 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-loadbalancer</artifactId>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

@@ -11,12 +11,6 @@
 
     <artifactId>clearlink-project</artifactId>
 
-    <properties>
-        <!-- Windows 命令行 mvn 默认按 GBK 解析源码，中文注释会报「不可映射的字符」，这里显式钉死 UTF-8 -->
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
-    </properties>
-
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
