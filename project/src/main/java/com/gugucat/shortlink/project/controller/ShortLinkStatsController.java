@@ -2,6 +2,7 @@ package com.gugucat.shortlink.project.controller;
 
 import com.gugucat.shortlink.project.common.convention.result.Result;
 import com.gugucat.shortlink.project.common.convention.result.Results;
+import com.gugucat.shortlink.project.dto.req.ShortLinkGroupStatsReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkStatsReqDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsRespDTO;
 import com.gugucat.shortlink.project.service.ShortLinkStatsService;
@@ -24,5 +25,13 @@ public class ShortLinkStatsController {
     @GetMapping("/api/clearlink/v0.1/stats")
     public Result<ShortLinkStatsRespDTO> shortLinkStats(ShortLinkStatsReqDTO requestParam) {
         return Results.success(shortLinkStatsService.oneShortLinkStats(requestParam));
+    }
+
+    /**
+     * 访问指定分组在指定日期内的监控数据
+     */
+    @GetMapping("/api/clearlink/v0.1/stats/group")
+    public Result<ShortLinkStatsRespDTO> groupShortLinkStats(ShortLinkGroupStatsReqDTO requestParam) {
+        return Results.success(shortLinkStatsService.groupShortLinkStats(requestParam));
     }
 }

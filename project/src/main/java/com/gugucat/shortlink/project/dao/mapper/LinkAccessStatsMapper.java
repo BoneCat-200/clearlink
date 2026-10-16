@@ -2,6 +2,7 @@ package com.gugucat.shortlink.project.dao.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.gugucat.shortlink.project.dao.entity.LinkAccessStatsDO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkGroupStatsReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkStatsReqDTO;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -107,4 +108,81 @@ public interface LinkAccessStatsMapper extends BaseMapper<LinkAccessStatsDO> {
                 tlas.full_short_url, tl.gid, tlas.weekday;
             """)
     List<LinkAccessStatsDO> listWeekdayStatsByShortLink(@Param("param") ShortLinkStatsReqDTO requestParam);
+
+    /**
+     * 按天汇总指定分组在指定日期内的基础监控数据
+     * <p>
+     * 分组维度比单个短链接多一层聚合：`t_link` 按 gid 分片，一个分组的所有短链接
+     * 都在同一张物理表里，所以这条查询只打一张表。
+     * <p>
+     * 与单链接版本的另一个差别是 {@code enable_status} 写死为 {@code '0'}：
+     * 分组统计不该把回收站里的短链接算进来。
+     *
+     * @param requestParam 分组监控查询参数
+     * @return 每天一条的 pv/uv/uip（组内所有短链接之和）
+     */
+    @Select("""
+            SELECT
+                tlas.date,
+                SUM(tlas.pv) AS pv,
+                SUM(tlas.uv) AS uv,
+                SUM(tlas.uip) AS uip
+            FROM
+                t_link tl INNER JOIN
+                t_link_access_stats tlas ON tl.full_short_url = tlas.full_short_url
+            WHERE
+                tl.gid = #{param.gid}
+                AND tl.del_flag = '0'
+                AND tl.enable_status = '0'
+                AND tlas.date BETWEEN #{param.startDate} and #{param.endDate}
+            GROUP BY
+                tl.gid, tlas.date;
+            """)
+    List<LinkAccessStatsDO> listStatsByGroup(@Param("param") ShortLinkGroupStatsReqDTO requestParam);
+
+    /**
+     * 按小时汇总指定分组在指定日期内的访问量
+     *
+     * @param requestParam 分组监控查询参数
+     * @return 有访问的小时及其 pv
+     */
+    @Select("""
+            SELECT
+                tlas.hour,
+                SUM(tlas.pv) AS pv
+            FROM
+                t_link tl INNER JOIN
+                t_link_access_stats tlas ON tl.full_short_url = tlas.full_short_url
+            WHERE
+                tl.gid = #{param.gid}
+                AND tl.del_flag = '0'
+                AND tl.enable_status = '0'
+                AND tlas.date BETWEEN #{param.startDate} and #{param.endDate}
+            GROUP BY
+                tl.gid, tlas.hour;
+            """)
+    List<LinkAccessStatsDO> listHourStatsByGroup(@Param("param") ShortLinkGroupStatsReqDTO requestParam);
+
+    /**
+     * 按星期汇总指定分组在指定日期内的访问量
+     *
+     * @param requestParam 分组监控查询参数
+     * @return 有访问的星期及其 pv，weekday 取值 1~7（ISO 8601，周一为 1）
+     */
+    @Select("""
+            SELECT
+                tlas.weekday,
+                SUM(tlas.pv) AS pv
+            FROM
+                t_link tl INNER JOIN
+                t_link_access_stats tlas ON tl.full_short_url = tlas.full_short_url
+            WHERE
+                tl.gid = #{param.gid}
+                AND tl.del_flag = '0'
+                AND tl.enable_status = '0'
+                AND tlas.date BETWEEN #{param.startDate} and #{param.endDate}
+            GROUP BY
+                tl.gid, tlas.weekday;
+            """)
+    List<LinkAccessStatsDO> listWeekdayStatsByGroup(@Param("param") ShortLinkGroupStatsReqDTO requestParam);
 }

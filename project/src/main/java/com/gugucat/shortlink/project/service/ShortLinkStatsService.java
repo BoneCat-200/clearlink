@@ -1,5 +1,6 @@
 package com.gugucat.shortlink.project.service;
 
+import com.gugucat.shortlink.project.dto.req.ShortLinkGroupStatsReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkStatsReqDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsRespDTO;
 
@@ -15,4 +16,16 @@ public interface ShortLinkStatsService {
      * @return 监控数据；区间内没有任何访问时返回 null
      */
     ShortLinkStatsRespDTO oneShortLinkStats(ShortLinkStatsReqDTO requestParam);
+
+    /**
+     * 获取指定分组在指定日期内的监控数据
+     * <p>
+     * 返回体与单链接版本是同一个结构，但**不含 `uvTypeStats`**：
+     * 分组维度的新老访客要按「访客在整个分组上的全部历史」判断，
+     * 口径与单链接不同，参考实现也没有实现。
+     *
+     * @param requestParam 分组监控查询参数
+     * @return 监控数据；区间内没有任何访问时返回 null
+     */
+    ShortLinkStatsRespDTO groupShortLinkStats(ShortLinkGroupStatsReqDTO requestParam);
 }

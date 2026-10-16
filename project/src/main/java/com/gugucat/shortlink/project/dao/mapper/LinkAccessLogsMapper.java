@@ -3,6 +3,7 @@ package com.gugucat.shortlink.project.dao.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.gugucat.shortlink.project.dao.entity.LinkAccessLogsDO;
 import com.gugucat.shortlink.project.dao.entity.LinkAccessStatsDO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkGroupStatsReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkStatsReqDTO;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -108,4 +109,59 @@ public interface LinkAccessLogsMapper extends BaseMapper<LinkAccessLogsDO> {
             ) AS user_counts;
             """)
     HashMap<String, Object> findUvTypeCntByShortLink(@Param("param") ShortLinkStatsReqDTO requestParam);
+
+    /**
+     * 汇总指定分组在指定日期内的 PV、UV、UIP
+     * <p>
+     * 与单链接版本的差别除了过滤条件，还有 UV 的口径：
+     * {@code COUNT(DISTINCT tlal.user)} 是在整个分组上去重的，
+     * 因此「同一个访客访问了组内两个短链接」只算一个 UV。
+     * 这正是分组统计想要的口径。
+     *
+     * @param requestParam 分组监控查询参数
+     * @return pv/uv/uip；区间内没有任何访问时返回 null（调用方需判空）
+     */
+    @Select("""
+            SELECT
+                COUNT(tlal.user) AS pv,
+                COUNT(DISTINCT tlal.user) AS uv,
+                COUNT(DISTINCT tlal.ip) AS uip
+            FROM
+                t_link tl INNER JOIN
+                t_link_access_logs tlal ON tl.full_short_url = tlal.full_short_url
+            WHERE
+                tl.gid = #{param.gid}
+                AND tl.del_flag = '0'
+                AND tl.enable_status = '0'
+                AND tlal.create_time BETWEEN #{param.startDate} and #{param.endDate}
+            GROUP BY
+                tl.gid;
+            """)
+    LinkAccessStatsDO findPvUvUidStatsByGroup(@Param("param") ShortLinkGroupStatsReqDTO requestParam);
+
+    /**
+     * 取指定分组在指定日期内访问次数最多的 5 个 IP
+     *
+     * @param requestParam 分组监控查询参数
+     * @return 每项含 ip 与 count 两个键
+     */
+    @Select("""
+            SELECT
+                tlal.ip,
+                COUNT(tlal.ip) AS count
+            FROM
+                t_link tl INNER JOIN
+                t_link_access_logs tlal ON tl.full_short_url = tlal.full_short_url
+            WHERE
+                tl.gid = #{param.gid}
+                AND tl.del_flag = '0'
+                AND tl.enable_status = '0'
+                AND tlal.create_time BETWEEN #{param.startDate} and #{param.endDate}
+            GROUP BY
+                tl.gid, tlal.ip
+            ORDER BY
+                count DESC
+            LIMIT 5;
+            """)
+    List<HashMap<String, Object>> listTopIpByGroup(@Param("param") ShortLinkGroupStatsReqDTO requestParam);
 }

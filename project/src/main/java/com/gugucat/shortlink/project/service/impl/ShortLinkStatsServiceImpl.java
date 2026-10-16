@@ -22,6 +22,7 @@ import com.gugucat.shortlink.project.dao.mapper.LinkGroupMapper;
 import com.gugucat.shortlink.project.dao.mapper.LinkLocaleStatsMapper;
 import com.gugucat.shortlink.project.dao.mapper.LinkNetworkStatsMapper;
 import com.gugucat.shortlink.project.dao.mapper.LinkOsStatsMapper;
+import com.gugucat.shortlink.project.dto.req.ShortLinkGroupStatsReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkStatsReqDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsAccessDailyRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsBrowserRespDTO;
@@ -42,6 +43,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
 
 /**
@@ -72,7 +75,8 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
      * 拿 {@code 'yyyy-MM-dd'} 这种只有日期的字符串去做 BETWEEN 的右边界时，
      * 对 DATE 列是按当天零点比较（当天算在内），对 DATETIME 列也是按当天零点比较
      * —— 于是<b>当天 00:00 之后的访问全部落在区间外</b>。
-     * 结果就是按天分布里有当天的数据、而总计 PV/UV/UIP 里没有，两个数对不上。
+     * 结果就是按天分布里有当天的数据、而总计 PV/UV/UIP 里没有，两个数对不上
+     * （总计查询带 GROUP BY，命中 0 行还会让 mapper 返回 null）。
      * 把右边界补到 {@code 23:59:59} 之后，两类列的比较都变成闭区间。
      */
     private static final String END_OF_DAY_SUFFIX = " 23:59:59";
@@ -88,9 +92,13 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
 
     @Override
     public ShortLinkStatsRespDTO oneShortLinkStats(ShortLinkStatsReqDTO requestParam) {
-        checkRequestParam(requestParam);
+        if (StrUtil.isBlank(requestParam.getFullShortUrl()) || requestParam.getEnableStatus() == null) {
+            throw new ClientException("完整短链接与启用标识不能为空");
+        }
         // 归属校验必须在查询之前：下面的 SQL 只按 gid 过滤，不校验 gid 是否属于当前用户
         checkGroupBelongToUser(requestParam.getGid());
+        requestParam.setEndDate(checkAndNormalizeDateRange(requestParam.getGid(), requestParam.getStartDate(), requestParam.getEndDate()));
+        List<String> rangeDates = buildRangeDates(requestParam.getStartDate(), requestParam.getEndDate());
         List<LinkAccessStatsDO> listStatsByShortLink = linkAccessStatsMapper.listStatsByShortLink(requestParam);
         if (CollUtil.isEmpty(listStatsByShortLink)) {
             // 区间内没有任何访问。返回 null 而不是一堆 0：
@@ -100,19 +108,138 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
         // 基础访问数据。这张表和上面那张表来自不同的表、且落库时不在同一个事务里，
         // 理论上存在「累加表有数据、明细表还没有」的中间态，所以这里必须判空，
         // 否则一次查询就会变成 500（参考实现直接 .getPv() 会空指针）
-        LinkAccessStatsDO pvUvUipStatsByShortLink = linkAccessLogsMapper.findPvUvUidStatsByShortLink(requestParam);
-        if (pvUvUipStatsByShortLink == null) {
-            pvUvUipStatsByShortLink = LinkAccessStatsDO.builder().pv(0).uv(0).uip(0).build();
+        LinkAccessStatsDO totals = linkAccessLogsMapper.findPvUvUidStatsByShortLink(requestParam);
+        // 访客访问类型详情。固定返回两条，没有数据时是两条 0，而不是空列表
+        // —— 前端的新老访客饼图按固定分类渲染
+        HashMap<String, Object> findUvTypeByShortLink = linkAccessLogsMapper.findUvTypeCntByShortLink(requestParam);
+        return ShortLinkStatsRespDTO.builder()
+                .pv(Optional.ofNullable(totals).map(LinkAccessStatsDO::getPv).orElse(0))
+                .uv(Optional.ofNullable(totals).map(LinkAccessStatsDO::getUv).orElse(0))
+                .uip(Optional.ofNullable(totals).map(LinkAccessStatsDO::getUip).orElse(0))
+                .daily(buildDaily(listStatsByShortLink, rangeDates))
+                .localeCnStats(buildLocaleStats(linkLocaleStatsMapper.listLocaleByShortLink(requestParam)))
+                .hourStats(buildHourStats(linkAccessStatsMapper.listHourStatsByShortLink(requestParam)))
+                .topIpStats(buildTopIpStats(linkAccessLogsMapper.listTopIpByShortLink(requestParam)))
+                .weekdayStats(buildWeekdayStats(linkAccessStatsMapper.listWeekdayStatsByShortLink(requestParam)))
+                .browserStats(buildBrowserStats(linkBrowserStatsMapper.listBrowserStatsByShortLink(requestParam)))
+                .osStats(buildOsStats(linkOsStatsMapper.listOsStatsByShortLink(requestParam)))
+                .uvTypeStats(buildUvTypeStats(findUvTypeByShortLink))
+                .deviceStats(buildDeviceStats(linkDeviceStatsMapper.listDeviceStatsByShortLink(requestParam)))
+                .networkStats(buildNetworkStats(linkNetworkStatsMapper.listNetworkStatsByShortLink(requestParam)))
+                .build();
+    }
+
+    @Override
+    public ShortLinkStatsRespDTO groupShortLinkStats(ShortLinkGroupStatsReqDTO requestParam) {
+        checkGroupBelongToUser(requestParam.getGid());
+        requestParam.setEndDate(checkAndNormalizeDateRange(requestParam.getGid(), requestParam.getStartDate(), requestParam.getEndDate()));
+        List<String> rangeDates = buildRangeDates(requestParam.getStartDate(), requestParam.getEndDate());
+        List<LinkAccessStatsDO> listStatsByGroup = linkAccessStatsMapper.listStatsByGroup(requestParam);
+        if (CollUtil.isEmpty(listStatsByGroup)) {
+            return null;
         }
-        // 基础访问详情：先把区间内每一天都铺出来，再拿查到的那天去填，
-        // 查不到的补 0，保证前端拿到的日期轴是连续的
-        List<ShortLinkStatsAccessDailyRespDTO> daily = new ArrayList<>();
-        List<String> rangeDates = DateUtil.rangeToList(DateUtil.parse(requestParam.getStartDate()), DateUtil.parse(requestParam.getEndDate()), DateField.DAY_OF_MONTH)
+        LinkAccessStatsDO totals = linkAccessLogsMapper.findPvUvUidStatsByGroup(requestParam);
+        return ShortLinkStatsRespDTO.builder()
+                .pv(Optional.ofNullable(totals).map(LinkAccessStatsDO::getPv).orElse(0))
+                .uv(Optional.ofNullable(totals).map(LinkAccessStatsDO::getUv).orElse(0))
+                .uip(Optional.ofNullable(totals).map(LinkAccessStatsDO::getUip).orElse(0))
+                .daily(buildDaily(listStatsByGroup, rangeDates))
+                .localeCnStats(buildLocaleStats(linkLocaleStatsMapper.listLocaleByGroup(requestParam)))
+                .hourStats(buildHourStats(linkAccessStatsMapper.listHourStatsByGroup(requestParam)))
+                .topIpStats(buildTopIpStats(linkAccessLogsMapper.listTopIpByGroup(requestParam)))
+                .weekdayStats(buildWeekdayStats(linkAccessStatsMapper.listWeekdayStatsByGroup(requestParam)))
+                .browserStats(buildBrowserStats(linkBrowserStatsMapper.listBrowserStatsByGroup(requestParam)))
+                .osStats(buildOsStats(linkOsStatsMapper.listOsStatsByGroup(requestParam)))
+                .deviceStats(buildDeviceStats(linkDeviceStatsMapper.listDeviceStatsByGroup(requestParam)))
+                .networkStats(buildNetworkStats(linkNetworkStatsMapper.listNetworkStatsByGroup(requestParam)))
+                // 刻意不返回 uvTypeStats：分组维度的新老访客需要「按访客在整个分组上的
+                // 全部历史」去判断，与单链接的口径不同，参考实现也没有实现
+                .build();
+    }
+
+    /**
+     * 校验当前用户是否拥有该分组
+     * <p>
+     * 监控查询的所有条件里只有 gid，没有用户。不做这一步的话，
+     * 任何登录用户只要猜到 gid 就能看到别人短链接的完整监控数据。
+     *
+     * @param gid 分组标识
+     */
+    private void checkGroupBelongToUser(String gid) {
+        if (StrUtil.isBlank(gid)) {
+            // 这一条必须放在最前面：下面那个查询用的是 `gid = 参数值`，
+            // 参数为 null 时永远匹配不上任何一行，于是「没传分组标识」会被报成
+            // 「用户信息与分组标识不匹配」—— 调用方会以为自己传错了分组，
+            // 而实际上是少传了参数
+            throw new ClientException("分组标识不能为空");
+        }
+        String username = Optional.ofNullable(UserContext.getUsername())
+                // 中台只被后管调用，这里拿不到用户名说明请求没经过后管
+                //（少了 username 请求头），属于调用方用错了接口
+                .orElseThrow(() -> new ServiceException("用户未登录"));
+        LambdaQueryWrapper<GroupDO> queryWrapper = Wrappers.lambdaQuery(GroupDO.class)
+                .eq(GroupDO::getGid, gid)
+                .eq(GroupDO::getUsername, username);
+        List<GroupDO> groupDOList = linkGroupMapper.selectList(queryWrapper);
+        if (CollUtil.isEmpty(groupDOList)) {
+            throw new ServiceException("用户信息与分组标识不匹配");
+        }
+    }
+
+    /**
+     * 校验日期区间参数并归一化右边界
+     * <p>
+     * 这些参数缺失时 SQL 并不会报错，只会查不到任何数据 ——
+     * 调用方拿到一个空的监控面板，却不知道是「这个短链接没人访问」还是「自己少传了参数」。
+     *
+     * @param gid       分组标识
+     * @param startDate 开始日期
+     * @param endDate   结束日期
+     * @return 补到当天最后一刻之后的结束日期
+     */
+    private String checkAndNormalizeDateRange(String gid, String startDate, String endDate) {
+        if (StrUtil.isBlank(gid) || StrUtil.isBlank(startDate) || StrUtil.isBlank(endDate)) {
+            throw new ClientException("分组标识、开始日期与结束日期不能为空");
+        }
+        if (!DATE_PATTERN.matcher(startDate).matches() || !DATE_PATTERN.matcher(endDate).matches()) {
+            throw new ClientException("日期格式不正确，应为 yyyy-MM-dd");
+        }
+        if (startDate.compareTo(endDate) > 0) {
+            // yyyy-MM-dd 是定长格式，字典序即时间序，不需要真的解析成日期去比
+            throw new ClientException("开始日期不能晚于结束日期");
+        }
+        // 右边界补到当天最后一刻，否则当天有访问的明细数据会被排除在区间外
+        return endDate + END_OF_DAY_SUFFIX;
+    }
+
+    /**
+     * 把日期区间展开成「区间内的每一天」
+     *
+     * @param startDate 开始日期
+     * @param endDate   结束日期（已归一化，含时分秒）
+     * @return 形如 2026-10-16 的日期列表，含首尾
+     */
+    private List<String> buildRangeDates(String startDate, String endDate) {
+        return DateUtil.rangeToList(DateUtil.parse(startDate), DateUtil.parse(endDate), DateField.DAY_OF_MONTH)
                 .stream()
                 .map(DateUtil::formatDate)
                 .toList();
+    }
+
+    /**
+     * 按天铺开基础访问数据
+     * <p>
+     * 区间内每一天都要有一条，查不到的那天补 0 —— 前端拿到的日期轴因此是连续的，
+     * 不需要自己补空。
+     *
+     * @param listStats  按天汇总的访问数据
+     * @param rangeDates 区间内的每一天
+     * @return 每天一条的响应列表
+     */
+    private List<ShortLinkStatsAccessDailyRespDTO> buildDaily(List<LinkAccessStatsDO> listStats, List<String> rangeDates) {
+        List<ShortLinkStatsAccessDailyRespDTO> daily = new ArrayList<>(rangeDates.size());
         rangeDates.forEach(each -> {
-            Optional<LinkAccessStatsDO> matched = listStatsByShortLink.stream()
+            Optional<LinkAccessStatsDO> matched = listStats.stream()
                     .filter(item -> Objects.equals(each, DateUtil.formatDate(item.getDate())))
                     .findFirst();
             daily.add(matched
@@ -129,91 +256,157 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
                             .uip(0)
                             .build()));
         });
-        // 地区访问详情（仅国内）。占比的分母是各地区的合计，不是总 PV ——
-        // 地区查询失败的那些访问会被记为「未知」并计入合计，
-        // 所以这个分母与总 PV 一致（除非历史上存在没写成地区的旧数据）
-        List<ShortLinkStatsLocaleCNRespDTO> localeCnStats = new ArrayList<>();
-        List<LinkLocaleStatsDO> listedLocaleByShortLink = linkLocaleStatsMapper.listLocaleByShortLink(requestParam);
-        int localeCnSum = listedLocaleByShortLink.stream()
-                .mapToInt(LinkLocaleStatsDO::getCnt)
-                .sum();
-        listedLocaleByShortLink.forEach(each -> localeCnStats.add(ShortLinkStatsLocaleCNRespDTO.builder()
-                .cnt(each.getCnt())
-                .locale(each.getProvince())
-                .ratio(calcRatio(each.getCnt(), localeCnSum))
-                .build()));
-        // 小时访问详情：固定 24 个元素，下标即小时，没有访问的小时补 0
-        List<Integer> hourStats = new ArrayList<>();
-        List<LinkAccessStatsDO> listHourStatsByShortLink = linkAccessStatsMapper.listHourStatsByShortLink(requestParam);
+        return daily;
+    }
+
+    /**
+     * 把「小时 → 访问量」铺成固定 24 个元素，下标即小时
+     *
+     * @param listHourStats 有访问的小时及其 pv
+     * @return 24 个元素，没有访问的小时为 0
+     */
+    private List<Integer> buildHourStats(List<LinkAccessStatsDO> listHourStats) {
+        List<Integer> hourStats = new ArrayList<>(24);
         for (int i = 0; i < 24; i++) {
-            AtomicInteger hour = new AtomicInteger(i);
-            int hourCnt = listHourStatsByShortLink.stream()
-                    .filter(each -> Objects.equals(each.getHour(), hour.get()))
-                    .findFirst()
-                    .map(LinkAccessStatsDO::getPv)
-                    .orElse(0);
-            hourStats.add(hourCnt);
+            hourStats.add(matchPv(listHourStats, LinkAccessStatsDO::getHour, i));
         }
-        // 高频访问IP详情
-        List<ShortLinkStatsTopIpRespDTO> topIpStats = new ArrayList<>();
-        List<HashMap<String, Object>> listTopIpByShortLink = linkAccessLogsMapper.listTopIpByShortLink(requestParam);
-        listTopIpByShortLink.forEach(each -> topIpStats.add(ShortLinkStatsTopIpRespDTO.builder()
-                .ip(Objects.toString(each.get("ip"), "未知"))
-                .cnt(Integer.parseInt(Objects.toString(each.get("count"), "0")))
-                .build()));
-        // 一周访问详情：固定 7 个元素，下标 0 对应 weekday=1（周一）
-        List<Integer> weekdayStats = new ArrayList<>();
-        List<LinkAccessStatsDO> listWeekdayStatsByShortLink = linkAccessStatsMapper.listWeekdayStatsByShortLink(requestParam);
+        return hourStats;
+    }
+
+    /**
+     * 把「星期 → 访问量」铺成固定 7 个元素，下标 0 对应周一
+     *
+     * @param listWeekdayStats 有访问的星期及其 pv（weekday 取值 1~7）
+     * @return 7 个元素，没有访问的星期为 0
+     */
+    private List<Integer> buildWeekdayStats(List<LinkAccessStatsDO> listWeekdayStats) {
+        List<Integer> weekdayStats = new ArrayList<>(7);
         for (int i = 1; i < 8; i++) {
-            AtomicInteger weekday = new AtomicInteger(i);
-            int weekdayCnt = listWeekdayStatsByShortLink.stream()
-                    .filter(each -> Objects.equals(each.getWeekday(), weekday.get()))
-                    .findFirst()
-                    .map(LinkAccessStatsDO::getPv)
-                    .orElse(0);
-            weekdayStats.add(weekdayCnt);
+            weekdayStats.add(matchPv(listWeekdayStats, LinkAccessStatsDO::getWeekday, i));
         }
-        // 浏览器访问详情
-        List<ShortLinkStatsBrowserRespDTO> browserStats = new ArrayList<>();
-        List<HashMap<String, Object>> listBrowserStatsByShortLink = linkBrowserStatsMapper.listBrowserStatsByShortLink(requestParam);
-        int browserSum = listBrowserStatsByShortLink.stream()
-                .mapToInt(each -> Integer.parseInt(Objects.toString(each.get("count"), "0")))
-                .sum();
-        listBrowserStatsByShortLink.forEach(each -> {
-            int cnt = Integer.parseInt(Objects.toString(each.get("count"), "0"));
-            browserStats.add(ShortLinkStatsBrowserRespDTO.builder()
-                    .cnt(cnt)
-                    .browser(Objects.toString(each.get("browser"), "未知"))
-                    .ratio(calcRatio(cnt, browserSum))
-                    .build());
-        });
-        // 操作系统访问详情
-        List<ShortLinkStatsOsRespDTO> osStats = new ArrayList<>();
-        List<HashMap<String, Object>> listOsStatsByShortLink = linkOsStatsMapper.listOsStatsByShortLink(requestParam);
-        int osSum = listOsStatsByShortLink.stream()
-                .mapToInt(each -> Integer.parseInt(Objects.toString(each.get("count"), "0")))
-                .sum();
-        listOsStatsByShortLink.forEach(each -> {
-            int cnt = Integer.parseInt(Objects.toString(each.get("count"), "0"));
-            osStats.add(ShortLinkStatsOsRespDTO.builder()
-                    .cnt(cnt)
-                    .os(Objects.toString(each.get("os"), "未知"))
-                    .ratio(calcRatio(cnt, osSum))
-                    .build());
-        });
-        // 访客访问类型详情。固定返回两条，没有数据时是两条 0，而不是空列表
-        // —— 前端的新老访客饼图按固定分类渲染
-        List<ShortLinkStatsUvRespDTO> uvTypeStats = new ArrayList<>();
-        HashMap<String, Object> findUvTypeByShortLink = linkAccessLogsMapper.findUvTypeCntByShortLink(requestParam);
-        int oldUserCnt = Integer.parseInt(Optional.ofNullable(findUvTypeByShortLink)
-                .map(each -> each.get("oldUserCnt"))
-                .map(Object::toString)
-                .orElse("0"));
-        int newUserCnt = Integer.parseInt(Optional.ofNullable(findUvTypeByShortLink)
-                .map(each -> each.get("newUserCnt"))
-                .map(Object::toString)
-                .orElse("0"));
+        return weekdayStats;
+    }
+
+    /**
+     * 从按维度汇总的结果里取出某一个维度的访问量
+     *
+     * @param listStats   按维度汇总的访问数据
+     * @param dimension   取哪个维度字段（hour / weekday）
+     * @param value       维度的取值
+     * @return 对应的 pv，取不到时为 0
+     */
+    private int matchPv(List<LinkAccessStatsDO> listStats, Function<LinkAccessStatsDO, Integer> dimension, int value) {
+        return listStats.stream()
+                .filter(each -> Objects.equals(dimension.apply(each), value))
+                .findFirst()
+                .map(LinkAccessStatsDO::getPv)
+                .orElse(0);
+    }
+
+    /**
+     * 高频访问 IP
+     *
+     * @param listTopIp 每项含 ip 与 count
+     * @return 最多 5 条
+     */
+    private List<ShortLinkStatsTopIpRespDTO> buildTopIpStats(List<HashMap<String, Object>> listTopIp) {
+        List<ShortLinkStatsTopIpRespDTO> topIpStats = new ArrayList<>(listTopIp.size());
+        listTopIp.forEach(each -> topIpStats.add(ShortLinkStatsTopIpRespDTO.builder()
+                .ip(Objects.toString(each.get("ip"), "未知"))
+                .cnt(parseCount(each.get("count")))
+                .build()));
+        return topIpStats;
+    }
+
+    /**
+     * 地区访问详情（仅国内，按省级聚合）
+     *
+     * @param listLocale 每省一条的 cnt
+     * @return 带占比的地区分布
+     */
+    private List<ShortLinkStatsLocaleCNRespDTO> buildLocaleStats(List<LinkLocaleStatsDO> listLocale) {
+        return buildRatioStats(listLocale, LinkLocaleStatsDO::getCnt, LinkLocaleStatsDO::getProvince,
+                (cnt, name, ratio) -> ShortLinkStatsLocaleCNRespDTO.builder()
+                        .cnt(cnt)
+                        .locale(name)
+                        .ratio(ratio)
+                        .build());
+    }
+
+    /**
+     * 浏览器访问详情
+     *
+     * @param listBrowser 每项含 browser 与 count
+     * @return 带占比的浏览器分布
+     */
+    private List<ShortLinkStatsBrowserRespDTO> buildBrowserStats(List<HashMap<String, Object>> listBrowser) {
+        return buildRatioStats(listBrowser, each -> parseCount(each.get("count")), each -> Objects.toString(each.get("browser"), "未知"),
+                (cnt, name, ratio) -> ShortLinkStatsBrowserRespDTO.builder()
+                        .cnt(cnt)
+                        .browser(name)
+                        .ratio(ratio)
+                        .build());
+    }
+
+    /**
+     * 操作系统访问详情
+     *
+     * @param listOs 每项含 os 与 count
+     * @return 带占比的操作系统分布
+     */
+    private List<ShortLinkStatsOsRespDTO> buildOsStats(List<HashMap<String, Object>> listOs) {
+        return buildRatioStats(listOs, each -> parseCount(each.get("count")), each -> Objects.toString(each.get("os"), "未知"),
+                (cnt, name, ratio) -> ShortLinkStatsOsRespDTO.builder()
+                        .cnt(cnt)
+                        .os(name)
+                        .ratio(ratio)
+                        .build());
+    }
+
+    /**
+     * 访问设备类型详情
+     *
+     * @param listDevice 每种设备一条的 cnt
+     * @return 带占比的设备分布
+     */
+    private List<ShortLinkStatsDeviceRespDTO> buildDeviceStats(List<LinkDeviceStatsDO> listDevice) {
+        return buildRatioStats(listDevice, LinkDeviceStatsDO::getCnt, LinkDeviceStatsDO::getDevice,
+                (cnt, name, ratio) -> ShortLinkStatsDeviceRespDTO.builder()
+                        .cnt(cnt)
+                        .device(name)
+                        .ratio(ratio)
+                        .build());
+    }
+
+    /**
+     * 访问网络类型详情
+     *
+     * @param listNetwork 每种网络一条的 cnt
+     * @return 带占比的网络分布
+     */
+    private List<ShortLinkStatsNetworkRespDTO> buildNetworkStats(List<LinkNetworkStatsDO> listNetwork) {
+        return buildRatioStats(listNetwork, LinkNetworkStatsDO::getCnt, LinkNetworkStatsDO::getNetwork,
+                (cnt, name, ratio) -> ShortLinkStatsNetworkRespDTO.builder()
+                        .cnt(cnt)
+                        .network(name)
+                        .ratio(ratio)
+                        .build());
+    }
+
+    /**
+     * 访客访问类型详情
+     * <p>
+     * 判断口径是「这个访客在全部历史里是不是只出现过一天」：
+     * 只出现过一天算新访客，跨天出现过算老访客。
+     *
+     * @param uvTypeCount 含 oldUserCnt 与 newUserCnt，查询无结果时可能为 null
+     * @return 固定两条：newUser 与 oldUser，没有数据时计数都是 0
+     */
+    private List<ShortLinkStatsUvRespDTO> buildUvTypeStats(HashMap<String, Object> uvTypeCount) {
+        int oldUserCnt = Optional.ofNullable(uvTypeCount).map(each -> parseCount(each.get("oldUserCnt"))).orElse(0);
+        int newUserCnt = Optional.ofNullable(uvTypeCount).map(each -> parseCount(each.get("newUserCnt"))).orElse(0);
         int uvSum = oldUserCnt + newUserCnt;
+        List<ShortLinkStatsUvRespDTO> uvTypeStats = new ArrayList<>(2);
         uvTypeStats.add(ShortLinkStatsUvRespDTO.builder()
                 .uvType("newUser")
                 .cnt(newUserCnt)
@@ -224,94 +417,38 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
                 .cnt(oldUserCnt)
                 .ratio(calcRatio(oldUserCnt, uvSum))
                 .build());
-        // 访问设备类型详情
-        List<ShortLinkStatsDeviceRespDTO> deviceStats = new ArrayList<>();
-        List<LinkDeviceStatsDO> listDeviceStatsByShortLink = linkDeviceStatsMapper.listDeviceStatsByShortLink(requestParam);
-        int deviceSum = listDeviceStatsByShortLink.stream()
-                .mapToInt(LinkDeviceStatsDO::getCnt)
-                .sum();
-        listDeviceStatsByShortLink.forEach(each -> deviceStats.add(ShortLinkStatsDeviceRespDTO.builder()
-                .cnt(each.getCnt())
-                .device(each.getDevice())
-                .ratio(calcRatio(each.getCnt(), deviceSum))
-                .build()));
-        // 访问网络类型详情
-        List<ShortLinkStatsNetworkRespDTO> networkStats = new ArrayList<>();
-        List<LinkNetworkStatsDO> listNetworkStatsByShortLink = linkNetworkStatsMapper.listNetworkStatsByShortLink(requestParam);
-        int networkSum = listNetworkStatsByShortLink.stream()
-                .mapToInt(LinkNetworkStatsDO::getCnt)
-                .sum();
-        listNetworkStatsByShortLink.forEach(each -> networkStats.add(ShortLinkStatsNetworkRespDTO.builder()
-                .cnt(each.getCnt())
-                .network(each.getNetwork())
-                .ratio(calcRatio(each.getCnt(), networkSum))
-                .build()));
-        return ShortLinkStatsRespDTO.builder()
-                .pv(pvUvUipStatsByShortLink.getPv())
-                .uv(pvUvUipStatsByShortLink.getUv())
-                .uip(pvUvUipStatsByShortLink.getUip())
-                .daily(daily)
-                .localeCnStats(localeCnStats)
-                .hourStats(hourStats)
-                .topIpStats(topIpStats)
-                .weekdayStats(weekdayStats)
-                .browserStats(browserStats)
-                .osStats(osStats)
-                .uvTypeStats(uvTypeStats)
-                .deviceStats(deviceStats)
-                .networkStats(networkStats)
-                .build();
+        return uvTypeStats;
     }
 
     /**
-     * 校验当前用户是否拥有该分组
+     * 把「维度名 + 计数」的汇总结果换算成带占比的响应列表
      * <p>
-     * 监控查询的所有条件里只有 gid，没有用户。不做这一步的话，
-     * 任何登录用户只要猜到 gid 就能看到别人短链接的完整监控数据。
-     *
-     * @param gid 分组标识
-     */
-    private void checkGroupBelongToUser(String gid) {
-        String username = Optional.ofNullable(UserContext.getUsername())
-                // 中台只被后管调用，这里拿不到用户名说明请求没经过后管
-                //（少了 username 请求头），属于调用方用错了接口
-                .orElseThrow(() -> new ServiceException("用户未登录"));
-        LambdaQueryWrapper<GroupDO> queryWrapper = Wrappers.lambdaQuery(GroupDO.class)
-                .eq(GroupDO::getGid, gid)
-                .eq(GroupDO::getUsername, username);
-        List<GroupDO> groupDOList = linkGroupMapper.selectList(queryWrapper);
-        if (CollUtil.isEmpty(groupDOList)) {
-            throw new ServiceException("用户信息与分组标识不匹配");
-        }
-    }
-
-    /**
-     * 校验监控查询的必填参数
+     * 单链接与分组两个查询入口各有 5 个这种维度的分布（地区/浏览器/操作系统/设备/网络），
+     * 换算是完全一样的：求和 → 各项除以合计 → 保留两位。
+     * 抽成一个方法是因为两个入口各写 5 遍会让「占比怎么算」这件事散在 10 个地方。
      * <p>
-     * 这些参数缺失时 SQL 并不会报错，只会查不到任何数据 ——
-     * 调用方拿到一个空的监控面板，却不知道是「这个短链接没人访问」还是「自己少传了参数」。
+     * 占比的分母是**各项的合计**，不是总 PV —— 两者在写库不完整时可能不一致
+     * （见开发文档「已知问题」）。
      *
-     * @param requestParam 监控查询参数
+     * @param rawStats  按维度汇总的原始数据
+     * @param cntGetter 从一条原始数据里取计数
+     * @param nameGetter 从一条原始数据里取维度名
+     * @param builder   把 (计数, 维度名, 占比) 组装成响应对象
+     * @param <S>       原始数据类型
+     * @param <T>       响应类型
+     * @return 带占比的响应列表
      */
-    private void checkRequestParam(ShortLinkStatsReqDTO requestParam) {
-        if (StrUtil.isBlank(requestParam.getFullShortUrl())
-                || StrUtil.isBlank(requestParam.getGid())
-                || StrUtil.isBlank(requestParam.getStartDate())
-                || StrUtil.isBlank(requestParam.getEndDate())
-                || requestParam.getEnableStatus() == null) {
-            throw new ClientException("完整短链接、分组标识、开始日期、结束日期与启用标识不能为空");
+    private <S, T> List<T> buildRatioStats(List<S> rawStats,
+                                           ToIntFunction<S> cntGetter,
+                                           Function<S, String> nameGetter,
+                                           RatioStatsBuilder<T> builder) {
+        int sum = rawStats.stream().mapToInt(cntGetter).sum();
+        List<T> result = new ArrayList<>(rawStats.size());
+        for (S each : rawStats) {
+            int cnt = cntGetter.applyAsInt(each);
+            result.add(builder.build(cnt, nameGetter.apply(each), calcRatio(cnt, sum)));
         }
-        if (!DATE_PATTERN.matcher(requestParam.getStartDate()).matches()
-                || !DATE_PATTERN.matcher(requestParam.getEndDate()).matches()) {
-            throw new ClientException("日期格式不正确，应为 yyyy-MM-dd");
-        }
-        if (requestParam.getStartDate().compareTo(requestParam.getEndDate()) > 0) {
-            // yyyy-MM-dd 是定长格式，字典序即时间序，不需要真的解析成日期去比
-            throw new ClientException("开始日期不能晚于结束日期");
-        }
-        // 右边界补到当天最后一刻，否则当天有访问的明细数据会被排除在区间外。
-        // 放在这里统一处理，是因为有 4 条 SQL 都拿 endDate 去比较 DATETIME 列
-        requestParam.setEndDate(requestParam.getEndDate() + END_OF_DAY_SUFFIX);
+        return result;
     }
 
     /**
@@ -328,5 +465,39 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
             return 0.0;
         }
         return Math.round((double) cnt / sum * 100.0) / 100.0;
+    }
+
+    /**
+     * 把 SQL 返回的计数转成 int
+     * <p>
+     * 计数走 HashMap 返回时是 Object（MySQL 的 COUNT/SUM 可能是 Long、BigDecimal 或 null），
+     * 直接 toString 再 parse 是最省事也最不容易出错的做法。
+     *
+     * @param value SQL 返回的计数
+     * @return 计数，null 或非法值时返回 0
+     */
+    private int parseCount(Object value) {
+        return Integer.parseInt(Objects.toString(value, "0"));
+    }
+
+    /**
+     * 把 (计数, 维度名, 占比) 组装成某个具体的响应对象
+     * <p>
+     * 五个维度的响应 DTO 之间没有继承关系，只能用函数式接口把「怎么组装」交给调用方。
+     *
+     * @param <T> 响应类型
+     */
+    @FunctionalInterface
+    private interface RatioStatsBuilder<T> {
+
+        /**
+         * 组装一条响应
+         *
+         * @param cnt   该项计数
+         * @param name  维度名
+         * @param ratio 占比
+         * @return 响应对象
+         */
+        T build(int cnt, String name, double ratio);
     }
 }
