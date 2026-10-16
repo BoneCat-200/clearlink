@@ -1,15 +1,19 @@
 package com.gugucat.shortlink.project.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.DateField;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gugucat.shortlink.project.common.biz.user.UserContext;
 import com.gugucat.shortlink.project.common.convention.exception.ClientException;
 import com.gugucat.shortlink.project.common.convention.exception.ServiceException;
 import com.gugucat.shortlink.project.dao.entity.GroupDO;
+import com.gugucat.shortlink.project.dao.entity.LinkAccessLogsDO;
 import com.gugucat.shortlink.project.dao.entity.LinkAccessStatsDO;
 import com.gugucat.shortlink.project.dao.entity.LinkDeviceStatsDO;
 import com.gugucat.shortlink.project.dao.entity.LinkLocaleStatsDO;
@@ -22,9 +26,12 @@ import com.gugucat.shortlink.project.dao.mapper.LinkGroupMapper;
 import com.gugucat.shortlink.project.dao.mapper.LinkLocaleStatsMapper;
 import com.gugucat.shortlink.project.dao.mapper.LinkNetworkStatsMapper;
 import com.gugucat.shortlink.project.dao.mapper.LinkOsStatsMapper;
+import com.gugucat.shortlink.project.dto.req.ShortLinkGroupStatsAccessRecordReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkGroupStatsReqDTO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkStatsAccessRecordReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkStatsReqDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsAccessDailyRespDTO;
+import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsAccessRecordRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsBrowserRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsDeviceRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsLocaleCNRespDTO;
@@ -40,6 +47,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -94,6 +102,11 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
      * 或干脆是乱填的）拼完会变成一个更离谱的值，最后在 SQL 里比较出莫名其妙的结果。
      */
     private static final Pattern DATE_PATTERN = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
+
+    /**
+     * 判不出新老访客时的兜底取值，措辞与 SQL 里 CASE 的取值保持一致
+     */
+    private static final String OLD_VISITOR = "老访客";
 
     @Override
     public ShortLinkStatsRespDTO oneShortLinkStats(ShortLinkStatsReqDTO requestParam) {
@@ -160,6 +173,76 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
                 // 刻意不返回 uvTypeStats：分组维度的新老访客需要「按访客在整个分组上的
                 // 全部历史」去判断，与单链接的口径不同，参考实现也没有实现
                 .build();
+    }
+
+    @Override
+    public IPage<ShortLinkStatsAccessRecordRespDTO> shortLinkStatsAccessRecord(ShortLinkStatsAccessRecordReqDTO requestParam) {
+        if (StrUtil.isBlank(requestParam.getFullShortUrl()) || requestParam.getEnableStatus() == null) {
+            throw new ClientException("完整短链接与启用标识不能为空");
+        }
+        checkGroupBelongToUser(requestParam.getGid());
+        requestParam.setEndDate(checkAndNormalizeDateRange(requestParam.getGid(), requestParam.getStartDate(), requestParam.getEndDate()));
+        IPage<LinkAccessLogsDO> sourcePage = linkAccessLogsMapper.selectAccessRecordPage(requestParam);
+        return buildAccessRecordPage(sourcePage, requestParam.getCurrent(), requestParam.getSize(),
+                users -> linkAccessLogsMapper.selectUvTypeByUsers(
+                        requestParam.getGid(),
+                        requestParam.getFullShortUrl(),
+                        requestParam.getEnableStatus(),
+                        requestParam.getStartDate(),
+                        requestParam.getEndDate(),
+                        users));
+    }
+
+    @Override
+    public IPage<ShortLinkStatsAccessRecordRespDTO> groupShortLinkStatsAccessRecord(ShortLinkGroupStatsAccessRecordReqDTO requestParam) {
+        checkGroupBelongToUser(requestParam.getGid());
+        requestParam.setEndDate(checkAndNormalizeDateRange(requestParam.getGid(), requestParam.getStartDate(), requestParam.getEndDate()));
+        IPage<LinkAccessLogsDO> sourcePage = linkAccessLogsMapper.selectGroupPage(requestParam);
+        return buildAccessRecordPage(sourcePage, requestParam.getCurrent(), requestParam.getSize(),
+                users -> linkAccessLogsMapper.selectGroupUvTypeByUsers(
+                        requestParam.getGid(),
+                        requestParam.getStartDate(),
+                        requestParam.getEndDate(),
+                        users));
+    }
+
+    /**
+     * 把访问记录实体分页转成响应分页，并补上「新访客 / 老访客」
+     * <p>
+     * 两个入口（单链接、分组）这一步完全一样，差别只在「怎么判断新老访客」，
+     * 所以把它作为函数传进来。
+     *
+     * @param sourcePage    明细表查出来的分页
+     * @param current       调用方请求的页码
+     * @param size          调用方请求的每页条数
+     * @param uvTypeLoader  输入当前页的访客标识，返回每个访客的新老类型
+     * @return 访问记录响应分页
+     */
+    private IPage<ShortLinkStatsAccessRecordRespDTO> buildAccessRecordPage(
+            IPage<LinkAccessLogsDO> sourcePage,
+            long current,
+            long size,
+            Function<List<String>, List<Map<String, Object>>> uvTypeLoader) {
+        if (CollUtil.isEmpty(sourcePage.getRecords())) {
+            // 保留调用方请求的分页参数：直接 new Page<>() 会退回默认的 current=1/size=10，
+            // 前端拿到的分页信息与它请求的对不上（参考实现就是 new Page<>()）
+            return new Page<>(current, size);
+        }
+        IPage<ShortLinkStatsAccessRecordRespDTO> result = sourcePage.convert(each -> BeanUtil.toBean(each, ShortLinkStatsAccessRecordRespDTO.class));
+        // 只拿当前页这几十个访客标识去判新老，不遍历整张明细表
+        List<String> users = result.getRecords().stream()
+                .map(ShortLinkStatsAccessRecordRespDTO::getUser)
+                .toList();
+        List<Map<String, Object>> uvTypeList = uvTypeLoader.apply(users);
+        result.getRecords().forEach(each -> each.setUvType(uvTypeList.stream()
+                .filter(item -> Objects.equals(each.getUser(), item.get("user")))
+                .findFirst()
+                .map(item -> Objects.toString(item.get("uvType"), OLD_VISITOR))
+                // 兜底值取「老访客」而不是「新访客」：判不出来时不要把人数往新访客那边算。
+                // 措辞与 SQL 里 CASE 的取值保持一致（参考实现的兜底写的是「旧访客」，
+                // 同一份数据出现两种叫法，前端会以为是两个分类）
+                .orElse(OLD_VISITOR)));
+        return result;
     }
 
     /**

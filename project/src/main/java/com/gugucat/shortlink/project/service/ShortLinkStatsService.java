@@ -1,7 +1,11 @@
 package com.gugucat.shortlink.project.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.gugucat.shortlink.project.dto.req.ShortLinkGroupStatsAccessRecordReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkGroupStatsReqDTO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkStatsAccessRecordReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkStatsReqDTO;
+import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsAccessRecordRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkStatsRespDTO;
 
 /**
@@ -28,4 +32,20 @@ public interface ShortLinkStatsService {
      * @return 监控数据；区间内没有任何访问时返回 null
      */
     ShortLinkStatsRespDTO groupShortLinkStats(ShortLinkGroupStatsReqDTO requestParam);
+
+    /**
+     * 分页查询单个短链接的访问记录
+     *
+     * @param requestParam 访问记录查询参数
+     * @return 访问记录分页，按访问时间倒序
+     */
+    IPage<ShortLinkStatsAccessRecordRespDTO> shortLinkStatsAccessRecord(ShortLinkStatsAccessRecordReqDTO requestParam);
+
+    /**
+     * 分页查询指定分组的访问记录
+     *
+     * @param requestParam 分组访问记录查询参数
+     * @return 访问记录分页，按访问时间倒序
+     */
+    IPage<ShortLinkStatsAccessRecordRespDTO> groupShortLinkStatsAccessRecord(ShortLinkGroupStatsAccessRecordReqDTO requestParam);
 }
