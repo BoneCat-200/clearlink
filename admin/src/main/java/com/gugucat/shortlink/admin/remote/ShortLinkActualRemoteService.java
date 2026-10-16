@@ -9,6 +9,7 @@ import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkUpdateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkPageRespDTO;
+import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkStatsRespDTO;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -116,4 +117,24 @@ public interface ShortLinkActualRemoteService {
      */
     @PostMapping("/api/clearlink/v0.1/recycle-bin/remove")
     Result<Void> removeRecycleBin(@RequestBody RecycleBinRemoveReqDTO requestParam);
+
+    /**
+     * 获取单个短链接在指定日期内的监控数据
+     * <p>
+     * 中台会校验这个 gid 是否属于当前用户，而当前用户是靠
+     * {@code OpenFeignConfiguration} 透传的请求头带过去的。
+     *
+     * @param fullShortUrl 完整短链接
+     * @param gid          分组标识
+     * @param enableStatus 启用标识
+     * @param startDate    开始日期
+     * @param endDate      结束日期
+     * @return 短链接监控数据
+     */
+    @GetMapping("/api/clearlink/v0.1/stats")
+    Result<ShortLinkStatsRespDTO> oneShortLinkStats(@RequestParam("fullShortUrl") String fullShortUrl,
+                                                    @RequestParam("gid") String gid,
+                                                    @RequestParam("enableStatus") Integer enableStatus,
+                                                    @RequestParam("startDate") String startDate,
+                                                    @RequestParam("endDate") String endDate);
 }
