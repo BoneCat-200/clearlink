@@ -3,6 +3,7 @@ package com.gugucat.shortlink.project.service;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
+import com.gugucat.shortlink.project.dto.biz.ShortLinkStatsRecordDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkPageReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkUpdateReqDTO;
@@ -45,4 +46,11 @@ public interface ShortLinkService {
      * @param response HTTP 响应
      */
     void restoreUrl(String shortUri, ServletRequest request, ServletResponse response);
+
+    /**
+     * 短链接访问统计
+     *
+     * @param statsRecord 本次访问的统计信息
+     */
+    void shortLinkStats(ShortLinkStatsRecordDTO statsRecord);
 }

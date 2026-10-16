@@ -1,6 +1,7 @@
 package com.gugucat.shortlink.project.toolkit;
 
 import cn.hutool.core.util.StrUtil;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.net.URI;
 import java.util.Date;
@@ -40,6 +41,121 @@ public class LinkUtil {
      */
     public static boolean isExpired(Date validDate) {
         return validDate != null && validDate.before(new Date());
+    }
+
+    /**
+     * 获取用户真实IP
+     * <p>
+     * 优先取各种代理头：经过 Nginx / 网关之后 request.getRemoteAddr() 拿到的是代理的地址，
+     * 只有 X-Forwarded-For 这类头里才有真实客户端 IP。
+     *
+     * @param request 请求
+     * @return 用户真实IP
+     */
+    public static String getActualIp(HttpServletRequest request) {
+        String ipAddress = request.getHeader("X-Forwarded-For");
+        if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
+            ipAddress = request.getHeader("Proxy-Client-IP");
+        }
+        if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
+            ipAddress = request.getHeader("WL-Proxy-Client-IP");
+        }
+        if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
+            ipAddress = request.getHeader("HTTP_CLIENT_IP");
+        }
+        if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
+            ipAddress = request.getHeader("HTTP_X_FORWARDED_FOR");
+        }
+        if (ipAddress == null || ipAddress.isEmpty() || "unknown".equalsIgnoreCase(ipAddress)) {
+            ipAddress = request.getRemoteAddr();
+        }
+        return ipAddress;
+    }
+
+    /**
+     * 获取用户访问操作系统
+     * <p>
+     * <b>判断顺序不能随意调换</b>：移动端的 UA 里同时含有桌面系统的关键字，
+     * 必须让更具体的判断排在前面，否则会被错误归类。
+     * <ul>
+     *   <li>{@code android} 必须排在 {@code linux} 之前 ——
+     *       Android 的 UA 形如 {@code (Linux; Android 13; ...)}，两者都命中</li>
+     *   <li>{@code iphone}/{@code ipad} 必须排在 {@code mac} 之前 ——
+     *       iOS 的 UA 形如 {@code (iPhone; CPU iPhone OS 17_0 like Mac OS X)}，两者都命中</li>
+     * </ul>
+     * 参考实现把 {@code mac} 和 {@code linux} 放在前面，导致 iOS 被记成 Mac OS、
+     * Android 被记成 Linux，这两个维度实际上收不到移动端的数据。
+     *
+     * @param request 请求
+     * @return 访问操作系统
+     */
+    public static String getOs(HttpServletRequest request) {
+        String userAgent = request.getHeader("User-Agent").toLowerCase();
+        if (userAgent.contains("windows")) {
+            return "Windows";
+        } else if (userAgent.contains("android")) {
+            return "Android";
+        } else if (userAgent.contains("iphone") || userAgent.contains("ipad")) {
+            return "iOS";
+        } else if (userAgent.contains("mac")) {
+            return "Mac OS";
+        } else if (userAgent.contains("linux")) {
+            return "Linux";
+        } else {
+            return "Unknown";
+        }
+    }
+
+    /**
+     * 获取用户访问浏览器
+     *
+     * @param request 请求
+     * @return 访问浏览器
+     */
+    public static String getBrowser(HttpServletRequest request) {
+        String userAgent = request.getHeader("User-Agent");
+        if (userAgent.toLowerCase().contains("edg")) {
+            return "Microsoft Edge";
+        } else if (userAgent.toLowerCase().contains("chrome")) {
+            return "Google Chrome";
+        } else if (userAgent.toLowerCase().contains("firefox")) {
+            return "Mozilla Firefox";
+        } else if (userAgent.toLowerCase().contains("safari")) {
+            return "Apple Safari";
+        } else if (userAgent.toLowerCase().contains("opera")) {
+            return "Opera";
+        } else if (userAgent.toLowerCase().contains("msie") || userAgent.toLowerCase().contains("trident")) {
+            return "Internet Explorer";
+        } else {
+            return "Unknown";
+        }
+    }
+
+    /**
+     * 获取用户访问设备
+     *
+     * @param request 请求
+     * @return 访问设备
+     */
+    public static String getDevice(HttpServletRequest request) {
+        String userAgent = request.getHeader("User-Agent");
+        if (userAgent.toLowerCase().contains("mobile")) {
+            return "Mobile";
+        }
+        return "PC";
+    }
+
+    /**
+     * 获取用户访问网络
+     * <p>
+     * 这里用的是「IP 段猜测」这种粗糙办法，真实的网络类型需要查 IP 库或三方服务。
+     *
+     * @param request 请求
+     * @return 访问网络
+     */
+    public static String getNetwork(HttpServletRequest request) {
+        String actualIp = getActualIp(request);
+        return actualIp.startsWith("192.168.") || actualIp.startsWith("10.") ? "WIFI" : "Mobile";
     }
 
     /**
