@@ -101,6 +101,8 @@ util/           # RandomGIDUtils
 | --- | ----------------------------------------- | ------------------------ | --- |
 | GET | `/api/clearlink/admin/v0.1/stats`         | 单个短链接指定日期内的监控数据（转发中台）    | ✅   |
 | GET | `/api/clearlink/admin/v0.1/stats/group`   | 指定分组指定日期内的监控数据（转发中台）     | ✅   |
+| GET | `/api/clearlink/admin/v0.1/stats/access-record` | 单个短链接的访问记录分页（转发中台）        | ✅   |
+| GET | `/api/clearlink/admin/v0.1/stats/access-record/group` | 指定分组的访问记录分页（转发中台）      | ✅   |
 
 **用户态由 Feign 拦截器自动带上**（`config/OpenFeignConfiguration`）：中台的监控接口要做归属校验
 （这个 gid 是不是这个用户的），而后管调中台不带 Cookie、也不经过网关，
@@ -109,14 +111,17 @@ util/           # RandomGIDUtils
 
 ### 4.7 其它（待开发）
 
-访问日志分页（2.5.3/2.5.4）、批量创建 + Excel 导出（2.3.2）、
-`GET /count`、`GET /actual/user/{username}` 仍未实现，见《接口文档.md》第 2 节。
+批量创建 + Excel 导出（2.3.2）、`GET /count`、`GET /actual/user/{username}` 仍未实现，
+见《接口文档.md》第 2 节。
 网关（`gateway`）仍是空壳、没有路由与鉴权，当前所有实测都是直连 8002/8001。
+
+**监控统计（2.5）已全部实现**，见 4.6。
 
 ## 5. 开发记录
 
 | 日期         | 功能                | 涉及文件                                                                            | 说明                                                                                                                                                                    |
 | ---------- | ----------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-10-16 | 联调中台访问日志分页查询      | `remote/dto/req/ShortLinkStatsAccessRecordReqDTO`、`remote/dto/req/ShortLinkGroupStatsAccessRecordReqDTO`、`remote/dto/resp/ShortLinkStatsAccessRecordRespDTO`、`remote`、`controller/ShortLinkStatsController` | `GET /admin/v0.1/stats/access-record` 与 `/access-record/group`，见 §4.6。请求 DTO 继承 `Page` 让 `current`/`size` 直接绑定，再作为 Feign 参数传给中台。响应 DTO 的 `createTime` 带 `@JsonFormat`，两边格式必须一致 |
 | 2026-10-16 | 联调中台分组短链接监控统计     | `remote/dto/req/ShortLinkGroupStatsReqDTO`、`remote`、`controller/ShortLinkStatsController` | `GET /admin/v0.1/stats/group`，见 §4.6。参数比单链接版本少 `fullShortUrl` 与 `enableStatus`：统计对象是整个分组，且分组统计一律只算正常状态的短链接。用户态仍由 `OpenFeignConfiguration` 透传 |
 | 2026-10-16 | 联调中台单个短链接监控统计     | `config/OpenFeignConfiguration`、`remote/dto/req/ShortLinkStatsReqDTO`、`remote/dto/resp/ShortLinkStats*RespDTO`（9 个）、`remote`、`controller/ShortLinkStatsController` | `GET /admin/v0.1/stats`，见 §4.6。**新增 `OpenFeignConfiguration`**：把 `UserContext` 的三个字段写进 Feign 请求头，中台的归属校验才能知道当前用户。9 个响应 DTO 是与中台的契约拷贝，字段名不一致会被 Jackson 静默反序列化成 null |
 | 2026-10-16 | 回收站：移入 / 分页 / 恢复 / 移除 | `remote/dto/req/RecycleBin*ReqDTO`、`remote/dto/req/ShortLinkRecycleBinPageReqDTO`、`controller/RecycleBinController`、`service/RecycleBinService(+Impl)`、`remote` | 四个接口见 §4.5。分页的 gidList 由 `GroupService.listGroup()` 按当前用户算出并覆盖客户端传值；用户无分组时返回空分页（参考实现抛 `ServiceException`，语义不对）。四个写操作的影响行数为 0 时抛可读错误 |
