@@ -55,4 +55,13 @@ public interface ShortLinkActualRemoteService {
                                                      @RequestParam("orderTag") String orderTag,
                                                      @RequestParam("current") Long current,
                                                      @RequestParam("size") Long size);
+
+    /**
+     * 根据 URL 获取标题
+     *
+     * @param url 目标网站地址
+     * @return 网站标题
+     */
+    @GetMapping("/api/clearlink/v0.1/title")
+    Result<String> getTitleByUrl(@RequestParam("url") String url);
 }
