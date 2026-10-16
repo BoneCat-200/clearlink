@@ -19,6 +19,10 @@ spring:
       discovery:
         server-addr: 127.0.0.1:8848
 
+mybatis-plus:
+  # 自定义 SQL 放在 resources/mapper 下
+  mapper-locations: classpath:mapper/*.xml
+
 short-link:
   domain:
     # 生成短链接时使用的默认域名。

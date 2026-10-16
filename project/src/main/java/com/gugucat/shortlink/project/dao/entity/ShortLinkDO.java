@@ -107,6 +107,24 @@ public class ShortLinkDO extends BaseDO {
     private Integer totalUip;
 
     /**
+     * 今日PV（不是 t_link 的列，来自分页 SQL 关联 t_link_stats_today 的结果）
+     */
+    @TableField(exist = false)
+    private Integer todayPv;
+
+    /**
+     * 今日UV（同 todayPv，非数据库列）
+     */
+    @TableField(exist = false)
+    private Integer todayUv;
+
+    /**
+     * 今日UIP（同 todayPv，非数据库列）
+     */
+    @TableField(exist = false)
+    private Integer todayUip;
+
+    /**
      * `del_time` bigint DEFAULT '0' COMMENT `删除时间戳`
      */
     private Long delTime;
