@@ -1,9 +1,13 @@
 package com.gugucat.shortlink.admin.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.remote.ShortLinkActualRemoteService;
+import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkGroupStatsAccessRecordReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkGroupStatsReqDTO;
+import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkStatsAccessRecordReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkStatsReqDTO;
+import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkStatsAccessRecordRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkStatsRespDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -45,6 +49,36 @@ public class ShortLinkStatsController {
                 requestParam.getGid(),
                 requestParam.getStartDate(),
                 requestParam.getEndDate()
+        );
+    }
+
+    /**
+     * 访问单个短链接在指定日期内的访问记录
+     */
+    @GetMapping("/api/clearlink/admin/v0.1/stats/access-record")
+    public Result<Page<ShortLinkStatsAccessRecordRespDTO>> shortLinkStatsAccessRecord(ShortLinkStatsAccessRecordReqDTO requestParam) {
+        return shortLinkActualRemoteService.shortLinkStatsAccessRecord(
+                requestParam.getFullShortUrl(),
+                requestParam.getGid(),
+                requestParam.getStartDate(),
+                requestParam.getEndDate(),
+                requestParam.getEnableStatus(),
+                requestParam.getCurrent(),
+                requestParam.getSize()
+        );
+    }
+
+    /**
+     * 访问指定分组在指定日期内的访问记录
+     */
+    @GetMapping("/api/clearlink/admin/v0.1/stats/access-record/group")
+    public Result<Page<ShortLinkStatsAccessRecordRespDTO>> groupShortLinkStatsAccessRecord(ShortLinkGroupStatsAccessRecordReqDTO requestParam) {
+        return shortLinkActualRemoteService.groupShortLinkStatsAccessRecord(
+                requestParam.getGid(),
+                requestParam.getStartDate(),
+                requestParam.getEndDate(),
+                requestParam.getCurrent(),
+                requestParam.getSize()
         );
     }
 }
