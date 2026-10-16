@@ -3,6 +3,7 @@ package com.gugucat.shortlink.admin.remote;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.remote.dto.req.RecycleBinRecoverReqDTO;
+import com.gugucat.shortlink.admin.remote.dto.req.RecycleBinRemoveReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.RecycleBinSaveReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkUpdateReqDTO;
@@ -104,4 +105,15 @@ public interface ShortLinkActualRemoteService {
      */
     @PostMapping("/api/clearlink/v0.1/recycle-bin/recover")
     Result<Void> recoverRecycleBin(@RequestBody RecycleBinRecoverReqDTO requestParam);
+
+    /**
+     * 从回收站移除短链接
+     * <p>
+     * 返回 Result 而不是 void，避免中台的业务错误码被吞掉、后管误报成功。
+     *
+     * @param requestParam 移除短链接请求参数
+     * @return 操作结果
+     */
+    @PostMapping("/api/clearlink/v0.1/recycle-bin/remove")
+    Result<Void> removeRecycleBin(@RequestBody RecycleBinRemoveReqDTO requestParam);
 }

@@ -12,6 +12,7 @@ import com.gugucat.shortlink.project.common.convention.exception.ClientException
 import com.gugucat.shortlink.project.dao.entity.ShortLinkDO;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkMapper;
 import com.gugucat.shortlink.project.dto.req.RecycleBinRecoverReqDTO;
+import com.gugucat.shortlink.project.dto.req.RecycleBinRemoveReqDTO;
 import com.gugucat.shortlink.project.dto.req.RecycleBinSaveReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkRecycleBinPageReqDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
@@ -75,6 +76,31 @@ public class RecycleBinServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLin
         // 必须删掉空值缓存：这条短链接在回收站期间如果被访问过，跳转链路会写下
         // 一个 30 分钟的「不存在」标记；不删的话，恢复之后它最多还有 30 分钟跳不了
         stringRedisTemplate.delete(String.format(RedisKeyConstant.GOTO_IS_NULL_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
+    }
+
+    @Override
+    public void removeRecycleBin(RecycleBinRemoveReqDTO requestParam) {
+        if (StrUtil.isBlank(requestParam.getGid()) || StrUtil.isBlank(requestParam.getFullShortUrl())) {
+            throw new ClientException("完整短链接与分组标识不能为空");
+        }
+        // 「回收站移除」也是逻辑删除，不是真删：del_flag 置 1、del_time 记下时间戳。
+        // 数据留在库里可追溯，也不去动统计表（那些表按 full_short_url 关联，没有外键，
+        // 真删的话漏清理一张就会留下孤儿数据）
+        LambdaUpdateWrapper<ShortLinkDO> updateWrapper = Wrappers.lambdaUpdate(ShortLinkDO.class)
+                .eq(ShortLinkDO::getFullShortUrl, requestParam.getFullShortUrl())
+                .eq(ShortLinkDO::getGid, requestParam.getGid())
+                .eq(ShortLinkDO::getEnableStatus, 1)     // 只有在回收站里的才能被移除
+                .eq(ShortLinkDO::getDelTime, 0L)
+                .eq(ShortLinkDO::getDelFlag, 0);
+        ShortLinkDO delShortLinkDO = ShortLinkDO.builder()
+                .delTime(System.currentTimeMillis())
+                .build();
+        delShortLinkDO.setDelFlag(1);   // delFlag 在父类 BaseDO 上，Lombok @Builder 覆盖不到
+        if (baseMapper.update(delShortLinkDO, updateWrapper) < 1) {
+            throw new ClientException("短链接不存在或不在回收站中");
+        }
+        // 不需要清理缓存：跳转缓存在移入回收站时就已经删了；
+        // 若之后有人访问过，写下的空值缓存恰好是正确答案（这条短链接确实已经不存在了）
     }
 
     @Override
