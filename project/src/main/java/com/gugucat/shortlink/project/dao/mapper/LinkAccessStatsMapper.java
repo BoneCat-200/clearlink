@@ -34,34 +34,6 @@ public interface LinkAccessStatsMapper extends BaseMapper<LinkAccessStatsDO> {
     void shortLinkStats(@Param("linkAccessStats") LinkAccessStatsDO linkAccessStatsDO);
 
     /**
-     * 按天汇总指定日期内的基础监控数据
-     * <p>
-     * 每个自然日每个小时是一行，所以这里要按 date 再 SUM 一次。
-     *
-     * @param requestParam 监控查询参数（含 gid，用于 t_link 分片路由）
-     * @return 每天一条的 pv/uv/uip
-     */
-    @Select("""
-            SELECT
-                tlas.date,
-                SUM(tlas.pv) AS pv,
-                SUM(tlas.uv) AS uv,
-                SUM(tlas.uip) AS uip
-            FROM
-                t_link tl INNER JOIN
-                t_link_access_stats tlas ON tl.full_short_url = tlas.full_short_url
-            WHERE
-                tlas.full_short_url = #{param.fullShortUrl}
-                AND tl.gid = #{param.gid}
-                AND tl.del_flag = '0'
-                AND tl.enable_status = #{param.enableStatus}
-                AND tlas.date BETWEEN #{param.startDate} and #{param.endDate}
-            GROUP BY
-                tlas.full_short_url, tl.gid, tlas.date;
-            """)
-    List<LinkAccessStatsDO> listStatsByShortLink(@Param("param") ShortLinkStatsReqDTO requestParam);
-
-    /**
      * 按小时汇总指定日期内的访问量
      *
      * @param requestParam 监控查询参数
@@ -108,37 +80,6 @@ public interface LinkAccessStatsMapper extends BaseMapper<LinkAccessStatsDO> {
                 tlas.full_short_url, tl.gid, tlas.weekday;
             """)
     List<LinkAccessStatsDO> listWeekdayStatsByShortLink(@Param("param") ShortLinkStatsReqDTO requestParam);
-
-    /**
-     * 按天汇总指定分组在指定日期内的基础监控数据
-     * <p>
-     * 分组维度比单个短链接多一层聚合：`t_link` 按 gid 分片，一个分组的所有短链接
-     * 都在同一张物理表里，所以这条查询只打一张表。
-     * <p>
-     * 与单链接版本的另一个差别是 {@code enable_status} 写死为 {@code '0'}：
-     * 分组统计不该把回收站里的短链接算进来。
-     *
-     * @param requestParam 分组监控查询参数
-     * @return 每天一条的 pv/uv/uip（组内所有短链接之和）
-     */
-    @Select("""
-            SELECT
-                tlas.date,
-                SUM(tlas.pv) AS pv,
-                SUM(tlas.uv) AS uv,
-                SUM(tlas.uip) AS uip
-            FROM
-                t_link tl INNER JOIN
-                t_link_access_stats tlas ON tl.full_short_url = tlas.full_short_url
-            WHERE
-                tl.gid = #{param.gid}
-                AND tl.del_flag = '0'
-                AND tl.enable_status = '0'
-                AND tlas.date BETWEEN #{param.startDate} and #{param.endDate}
-            GROUP BY
-                tl.gid, tlas.date;
-            """)
-    List<LinkAccessStatsDO> listStatsByGroup(@Param("param") ShortLinkGroupStatsReqDTO requestParam);
 
     /**
      * 按小时汇总指定分组在指定日期内的访问量

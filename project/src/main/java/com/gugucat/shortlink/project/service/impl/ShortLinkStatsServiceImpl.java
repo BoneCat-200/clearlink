@@ -50,9 +50,14 @@ import java.util.regex.Pattern;
 /**
  * 短链接监控接口实现层
  * <p>
- * 这里<b>不做预聚合</b>：一次请求会打十余条 GROUP BY 查询。之所以能接受，
- * 是因为它们都落在按 full_short_url 索引的明细/聚合表上，且查询区间通常是小时级；
- * 一旦要看「全部短链接」的横向对比，这个思路就撑不住了（那属于分组维度的统计）。
+ * 一次请求会打十余条 GROUP BY 查询。之所以能接受，是因为它们都落在按 full_short_url
+ * 索引的表上，且查询区间通常是小时级；一旦要看「全部短链接」的横向对比，
+ * 这个思路就撑不住了（那属于分组维度的统计）。
+ * <p>
+ * <b>所有涉及去重的指标（总计、按天分布、高频 IP、新老访客）都从 t_link_access_logs
+ * 现算，不复用 t_link_access_stats 的累加值</b>：累加表的 uv/uip 是按「天 + 小时」
+ * 去重的，去重指标不可加，求和会重复计数。只有可加指标（各维度的 pv/cnt）才用累加表。
+ * 这样做的一个附带好处是同一个响应里的数字必然自洽 —— 它们来自同一张表。
  */
 @Service
 @RequiredArgsConstructor
@@ -99,15 +104,15 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
         checkGroupBelongToUser(requestParam.getGid());
         requestParam.setEndDate(checkAndNormalizeDateRange(requestParam.getGid(), requestParam.getStartDate(), requestParam.getEndDate()));
         List<String> rangeDates = buildRangeDates(requestParam.getStartDate(), requestParam.getEndDate());
-        List<LinkAccessStatsDO> listStatsByShortLink = linkAccessStatsMapper.listStatsByShortLink(requestParam);
-        if (CollUtil.isEmpty(listStatsByShortLink)) {
+        // 按天分布从明细表算，不用 t_link_access_stats：后者的 uv/uip 是按小时去重的，
+        // 求和会重复计数（详见 LinkAccessLogsMapper.listDailyStatsByShortLink 的说明）
+        List<LinkAccessStatsDO> dailyStatsByShortLink = linkAccessLogsMapper.listDailyStatsByShortLink(requestParam);
+        if (CollUtil.isEmpty(dailyStatsByShortLink)) {
             // 区间内没有任何访问。返回 null 而不是一堆 0：
             // 调用方据此可以把「没数据」和「有数据但都是 0」区分开
             return null;
         }
-        // 基础访问数据。这张表和上面那张表来自不同的表、且落库时不在同一个事务里，
-        // 理论上存在「累加表有数据、明细表还没有」的中间态，所以这里必须判空，
-        // 否则一次查询就会变成 500（参考实现直接 .getPv() 会空指针）
+        // 基础访问数据。与按天分布同源（都读明细表），所以两者必然自洽
         LinkAccessStatsDO totals = linkAccessLogsMapper.findPvUvUidStatsByShortLink(requestParam);
         // 访客访问类型详情。固定返回两条，没有数据时是两条 0，而不是空列表
         // —— 前端的新老访客饼图按固定分类渲染
@@ -116,7 +121,7 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
                 .pv(Optional.ofNullable(totals).map(LinkAccessStatsDO::getPv).orElse(0))
                 .uv(Optional.ofNullable(totals).map(LinkAccessStatsDO::getUv).orElse(0))
                 .uip(Optional.ofNullable(totals).map(LinkAccessStatsDO::getUip).orElse(0))
-                .daily(buildDaily(listStatsByShortLink, rangeDates))
+                .daily(buildDaily(dailyStatsByShortLink, rangeDates))
                 .localeCnStats(buildLocaleStats(linkLocaleStatsMapper.listLocaleByShortLink(requestParam)))
                 .hourStats(buildHourStats(linkAccessStatsMapper.listHourStatsByShortLink(requestParam)))
                 .topIpStats(buildTopIpStats(linkAccessLogsMapper.listTopIpByShortLink(requestParam)))
@@ -134,8 +139,8 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
         checkGroupBelongToUser(requestParam.getGid());
         requestParam.setEndDate(checkAndNormalizeDateRange(requestParam.getGid(), requestParam.getStartDate(), requestParam.getEndDate()));
         List<String> rangeDates = buildRangeDates(requestParam.getStartDate(), requestParam.getEndDate());
-        List<LinkAccessStatsDO> listStatsByGroup = linkAccessStatsMapper.listStatsByGroup(requestParam);
-        if (CollUtil.isEmpty(listStatsByGroup)) {
+        List<LinkAccessStatsDO> dailyStatsByGroup = linkAccessLogsMapper.listDailyStatsByGroup(requestParam);
+        if (CollUtil.isEmpty(dailyStatsByGroup)) {
             return null;
         }
         LinkAccessStatsDO totals = linkAccessLogsMapper.findPvUvUidStatsByGroup(requestParam);
@@ -143,7 +148,7 @@ public class ShortLinkStatsServiceImpl implements ShortLinkStatsService {
                 .pv(Optional.ofNullable(totals).map(LinkAccessStatsDO::getPv).orElse(0))
                 .uv(Optional.ofNullable(totals).map(LinkAccessStatsDO::getUv).orElse(0))
                 .uip(Optional.ofNullable(totals).map(LinkAccessStatsDO::getUip).orElse(0))
-                .daily(buildDaily(listStatsByGroup, rangeDates))
+                .daily(buildDaily(dailyStatsByGroup, rangeDates))
                 .localeCnStats(buildLocaleStats(linkLocaleStatsMapper.listLocaleByGroup(requestParam)))
                 .hourStats(buildHourStats(linkAccessStatsMapper.listHourStatsByGroup(requestParam)))
                 .topIpStats(buildTopIpStats(linkAccessLogsMapper.listTopIpByGroup(requestParam)))
