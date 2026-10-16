@@ -69,6 +69,11 @@ public class ShortLinkPageRespDTO {
     private String describe;
 
     /**
+     * 网站图标
+     */
+    private String favicon;
+
+    /**
      * 历史PV
      */
     private Integer totalPv;

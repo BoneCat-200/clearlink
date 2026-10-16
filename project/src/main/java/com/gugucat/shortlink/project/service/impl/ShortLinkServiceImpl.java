@@ -32,6 +32,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 import org.redisson.api.RBloomFilter;
 import org.redisson.api.RLock;
 import org.redisson.api.RReadWriteLock;
@@ -64,6 +67,11 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
 
     @Value("${short-link.domain.default}")
     private String createShortLinkDefaultDomain;
+
+    /**
+     * 抓取目标网站图标的超时时间，单位毫秒
+     */
+    private static final int FAVICON_FETCH_TIMEOUT_MS = 5000;
 
     @Transactional(rollbackFor = Exception.class)
     @Override
@@ -98,6 +106,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 .totalUip(0)
                 .delTime(0L)
                 .fullShortUrl(fullShortUrl)
+                .favicon(getFavicon(requestParam.getOriginUrl()))
                 .build();
         ShortLinkGotoDO linkGotoDO = ShortLinkGotoDO.builder()
                 .fullShortUrl(fullShortUrl)
@@ -178,6 +187,10 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                     .describe(requestParam.getDescribe())
                     .validDateType(requestParam.getValidDateType())
                     .validDate(requestParam.getValidDate())
+                    // 原始链接没变就沿用原来的图标，避免每次改描述都去抓一次外部站点
+                    .favicon(Objects.equals(requestParam.getOriginUrl(), hasShortLinkDO.getOriginUrl())
+                            ? hasShortLinkDO.getFavicon()
+                            : getFavicon(requestParam.getOriginUrl()))
                     .build();
             baseMapper.update(shortLinkDO, updateWrapper);
         } else {
@@ -217,6 +230,9 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                         .totalUip(hasShortLinkDO.getTotalUip())
                         .fullShortUrl(hasShortLinkDO.getFullShortUrl())
                         .delTime(0L)
+                        .favicon(Objects.equals(requestParam.getOriginUrl(), hasShortLinkDO.getOriginUrl())
+                                ? hasShortLinkDO.getFavicon()
+                                : getFavicon(requestParam.getOriginUrl()))
                         .build();
                 baseMapper.insert(shortLinkDO);
 
@@ -360,6 +376,36 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             result.setDomain("http://" + result.getDomain());
             return result;
         });
+    }
+
+    /**
+     * 抓取目标网站的图标地址
+     * <p>
+     * 与「获取目标网站标题」不同，这里抓不到不能报错：图标只是界面上的锦上添花，
+     * 目标站点不可达、超时、页面里根本没写 icon，都不该让建链失败。
+     * 所以异常在这里就地消化，统一返回 null。
+     *
+     * @param url 原始链接
+     * @return 图标的绝对地址；抓不到返回 null
+     */
+    private String getFavicon(String url) {
+        try {
+            // 与 UrlTitleServiceImpl 一样只发一次请求：jsoup 遇到非 2xx 会抛异常，
+            // 不需要先另发一个请求探响应码（参考实现那样会把目标站点的请求量翻倍）
+            Document document = Jsoup.connect(url).timeout(FAVICON_FETCH_TIMEOUT_MS).get();
+            // rel 的取值有 "icon"、"shortcut icon" 等多种写法（大小写也不统一），
+            // 用正则统一匹配；"apple-touch-icon" 不以 icon 开头，不会被选中
+            Element faviconLink = document.select("link[rel~=(?i)^(shortcut )?icon]").first();
+            if (faviconLink != null) {
+                // 用 abs:href 而不是 href：页面里写的往往是 "/img/favicon.png" 这种相对路径，
+                // jsoup 会按文档地址补成完整 URL，前端才能直接拿来当图片地址
+                return faviconLink.attr("abs:href");
+            }
+        } catch (Exception ex) {
+            // 只记日志不往上抛。页面没有 icon 属于正常情况（不打印），抓取失败才值得留痕
+            log.warn("抓取目标网站图标失败，原始链接：{}", url, ex);
+        }
+        return null;
     }
 
     /**
