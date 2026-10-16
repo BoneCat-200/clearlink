@@ -65,9 +65,21 @@ resources/
 | --- | --------------------------- | -------------- | --- |
 | GET | `/api/clearlink/v0.1/title` | 按 URL 获取网站标题   | ✅   |
 
-### 4.4 未实现
+### 4.4 短链接监控（写入侧，暂无 HTTP 接口）
 
-批量创建（3.1.3）、监控统计（3.3）、`GET /count`（3.1.6）、
+统计是**采集与落库分离**的两段，中间用 Redis Stream 传递：
+
+| 阶段 | 触发点 | 落点 |
+| --- | --- | --- |
+| 采集 | 跳转成功时（三条分支各一次） | `ShortLinkServiceImpl.buildLinkStatsRecordAndSetUser` → `ShortLinkStatsSaveProducer` |
+| 落库 | 消费者监听 `clearlink:stats-stream` | `ShortLinkStatsSaveConsumer.actualSaveShortLinkStats` |
+
+**读取侧的 HTTP 接口（`/stats`、`/stats/group`、访问日志分页）尚未实现**，属于后续增量，
+所以本阶段没有任何新增的对外接口。
+
+### 4.5 未实现
+
+批量创建（3.1.3）、监控统计的**读取接口**（3.3）、`GET /count`（3.1.6）、
 `/create/by-lock` 教学对比接口（3.1.2）。
 
 **`/create/by-lock` 是刻意留白的**：它是参考实现用来做「布隆过滤器 vs 分布式锁」性能对比的教学接口，
@@ -81,9 +93,16 @@ resources/
 | --- | --- | --- | --- |
 | `t_link` | `gid` | `t_link_0..15` | 分页查询按 gid 过滤，可精确路由单表 |
 | `t_link_goto` | `full_short_url` | `t_link_goto_0..15` | 跳转时只有短码、没有 gid，拼出完整短链接后才是唯一可用的键 |
+| `t_group` | `username` | `t_group_0..15` | 按用户隔离分组；**规则必须与 admin 模块完全一致**，否则同一行分组数据两边路由不到同一张物理表 |
 
 算法 `HASH_MOD`，`sharding-count: 16`，即 `Math.abs(分片键.hashCode()) % 16`。
 **所有 `t_link` 查询都必须带 `gid`**，否则路由不到单表。
+
+`t_group` 在中台只用于校验「这个分组是不是这个用户的」（分组归属方仍然是 admin 模块）。
+实测验证：`username = admin` 经中台查询路由到 `t_group_15`，与 admin 写入的位置一致。
+
+**8 张统计表全部未分表**（都在 `ds_0`），与 `t_link`/`t_link_goto` 不同：
+它们按 `full_short_url` 关联查询，没有分片键，分表反而会让读取侧的聚合更麻烦。
 
 跳转必然是「两次查询」：先查 `t_link_goto` 拿 gid，再查 `t_link`。这是分片设计带来的固有代价。
 
@@ -155,6 +174,42 @@ del_flag=0           del_flag=0             del_time=时间戳
 > 都要负责把对应的缓存擦掉。空值缓存这一条已经出现两次
 > （修改时限期续期、回收站恢复），说明引入空值缓存时那张清单只列了一半。
 
+### 5.6 统计链路的写入侧
+
+一次跳转产生一条消息，写 9 处数据：
+
+```
+跳转成功
+  └─ buildLinkStatsRecordAndSetUser
+       ├─ UV 首次？  Cookie 里的 uv + Redis Set clearlink:stats:uv:{fullShortUrl}
+       ├─ UIP 首次？ 真实 IP      + Redis Set clearlink:stats:uip:{fullShortUrl}
+       └─ 操作系统 / 浏览器 / 设备 / 网络（从 UA 与 IP 解析）
+  └─ XADD clearlink:stats-stream   （消费组 clearlink:stats-stream:only-group）
+  └─ ShortLinkStatsSaveConsumer.onMessage
+       ├─ 幂等判定（clearlink:idempotent:{recordId}，SETNX 三态，TTL 2 分钟）
+       └─ actualSaveShortLinkStats（整段包在「分组变更」读锁里）
+            t_link_access_stats   (full_short_url, date, hour)  累加 pv/uv/uip
+            t_link_locale_stats   (full_short_url, date, adcode, province)  累加 cnt
+            t_link_os_stats       (full_short_url, date, os)     累加 cnt
+            t_link_browser_stats  (full_short_url, date, browser) 累加 cnt
+            t_link_device_stats   (full_short_url, date, device)  累加 cnt
+            t_link_network_stats  (full_short_url, date, network) 累加 cnt
+            t_link_stats_today    (full_short_url, date)         累加 today_pv/uv/uip
+            t_link_access_logs    直接 insert 一行（明细，没有唯一键）
+            t_link                total_pv/uv/uip 自增
+```
+
+**三处设计要点**：
+
+1. **累加语句必须是「一条 SQL 完成 upsert」**（`INSERT ... ON DUPLICATE KEY UPDATE`）。
+   改成「先查再写」在并发下会丢更新，而这些表本来就是拿唯一键换取累加能力的。
+2. **整段落库包在 `RReadWriteLock` 的读锁里**，锁名 `clearlink:lock:update-gid:{fullShortUrl}`，
+   与「跨分组迁移」的写锁互斥。原因：统计写 `t_link` 必须带 `gid`（分片键），
+   而换分组会改写 `t_link_goto.gid`。不加锁就可能读到旧 gid，
+   把更新路由到**错误的物理表并静默丢数据**。
+3. **统计是旁路，任何失败都不能影响跳转**：生产端异常只记日志（跳转照常 302），
+   消费端地区查询失败只把地区降级为「未知」，其余维度照常写入。
+
 ## 6. 开发记录
 
 | 日期         | 功能                         | 说明                                                                                                                                     |
@@ -176,6 +231,10 @@ del_flag=0           del_flag=0             del_time=时间戳
 | 2026-10-16 | 回收站：恢复                     | `POST /recycle-bin/recover`；`enable_status 1→0` + 删空值缓存                                                                                 |
 | 2026-10-16 | 回收站：移除（逻辑删除）               | `POST /recycle-bin/remove`；`del_flag=1` + `del_time=时间戳`，不真删、不碰统计表。至此状态机闭合                                                             |
 | 2026-10-16 | 四条写操作统一「影响行数 0 即报错」        | 移入/恢复/移除在匹配不到记录时抛 `ClientException`（参考实现静默返回成功，用户会以为操作生效了）                                                                            |
+| 2026-10-16 | 跳转时采集访问信息并入队               | 加 fastjson2；`LinkUtil` 补 `getActualIp`/`getOs`/`getBrowser`/`getDevice`/`getNetwork`；新增 `ShortLinkStatsRecordDTO` 与生产者；**修复 `getOs` 判断顺序缺陷**（详见 7.11）                |
+| 2026-10-16 | 消费统计消息并落入监控表               | `RedisStreamConfiguration`（单线程 + 同步队列 + 丢弃最旧）＋消费组初始化任务＋幂等处理器＋消费者；8 个统计 DO/Mapper＋`LinkStatsTodayService`；`ShortLinkMapper.incrementStats`；project 补 `t_group` 分片规则；`short-link.stats.locale.amap-key` 走环境变量注入 |
+| 2026-10-16 | 高德调用加超时并降级                   | 3 秒超时；失败/未配 key 时地区记「未知」而其余 7 张表照常写；省/市/编码三字段各自判空（参考实现只看 province，会让 `city`/`adcode` 的 `[]` 原样入库）                                        |
+| 2026-10-16 | 修复合规：统计缺跳转记录时不再抛异常          | `t_link_goto` 查不到记录时 WARN 并跳过。抛异常会在单线程消费者上反复失败刷日志，而重试多少次都查不出不存在的记录                                                                     |
 
 ## 7. 注意事项与已知问题
 
@@ -217,8 +276,10 @@ del_flag=0           del_flag=0             del_time=时间戳
 
 ### 7.5 分页查询不做数据归属校验
 
-`/page` 的 `gid` 完全由调用方给，不校验它是否属于当前用户（`restoreUrl` 不涉及用户态，
-`project` 侧也没有 `t_group` 的分片规则）。数据隔离目前只靠「gid 是 6 位随机串、猜不到」。
+`/page` 的 `gid` 完全由调用方给，不校验它是否属于当前用户（`restoreUrl` 不涉及用户态）。
+数据隔离目前只靠「gid 是 6 位随机串、猜不到」。
+（`t_group` 的分片规则已在统计阶段补上，但归属校验要等监控读取接口实现，
+见 4.4 与 4.5。）
 
 ### 7.6 老行永久留在原表
 
@@ -257,3 +318,30 @@ del_flag=0           del_flag=0             del_time=时间戳
 - **实测配置**：`short-link.domain.default: 127.0.0.1:8001`（必须与浏览器访问短链接时的 host:port 一致）、
   `short-link.goto-domain.white-list.enable: false`（本地联调放行任意原链）。
 - **建表**：`t_link_0..15`、`t_link_goto_0..15`、各统计表在数据库中已存在，本模块不负责建表。
+- **统计落库的实测方式**：短链接访问时带上 `-H "X-Forwarded-For: <公网IP>"`
+  就能让整条链路（含高德逆地理）按真实 IP 走，否则本机 `127.0.0.1` 只会得到「未知」地区。
+
+### 7.11 统计相关
+
+- **已修复：`getOs` 的判断顺序让移动端数据全归错档**。参考实现先判 `mac` / `linux`，
+  但 iPhone 的 UA 是 `(iPhone; CPU iPhone OS 17_0 like Mac OS X)`（含 `mac`），
+  Android 的是 `(Linux; Android 13; ...)`（含 `linux`），于是 iOS 被记成 Mac OS、
+  Android 被记成 Linux —— **这两个维度实际上收不到任何移动端数据**。
+  改为「具体在前」：`windows → android → iphone/ipad → mac → linux`。
+- **UV/UIP 两个 Redis Set 永不设 TTL**（实测 `TTL = -1`），成员随独立访客数持续增长。
+  不能简单加 TTL —— 那会让老访客重新变成新访客，**UV 被系统性高估**；
+  正解是按天分桶或用 HyperLogLog。
+- **设备识别只有 PC / Mobile 两档**；网络类型是「`192.168.`/`10.` 开头算 WIFI，其余算 Mobile」
+  的粗略猜测，真实网络类型需要 IP 库或三方服务。
+- **`autoAck` 与「抛异常重投」是冲突的**：容器用 `ReadOffset.lastConsumed()`（只读新消息）
+  且 `autoAcknowledge(true)`，所以消息既不会进 pending、也不会被重投。
+  幂等处理器里那条 `throw new ServiceException("消息未完成流程，需要消息队列重试")`
+  **在当前配置下不可能真正触发重试**，实际起作用的只是「重复投递抑制」。
+  这一点在后续 MQ 重构（换成 RocketMQ）时要重新处理。
+- **重复投递时消息记录不会被删除**：消费成功的正常路径会 `XDEL` 掉记录以控制 `XLEN`，
+  但「已处理完成」的早退分支直接 return，记录会 ACK 后仍留在 Stream 里。
+  当前部署形态（单消费者 + `lastConsumed`）不会产生重复投递，所以没有实际影响；
+  一旦换成会重投的 MQ，这里要补上删除。
+- **`t_link_access_logs` 是增长最快的表**（一次跳转一行），且没有任何清理机制。
+- **地区维度在查询失败时记「未知」而不是跳过**，是为了让地区维度的计数合计等于 PV；
+  参考实现在高德返回非 10000 时直接不写这一行，会让地区分布静默少计。
