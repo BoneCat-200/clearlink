@@ -47,6 +47,13 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
     @Transactional(rollbackFor = Exception.class)
     @Override
     public ShortLinkCreateRespDTO createShortLink(ShortLinkCreateReqDTO requestParam) {
+        // gid 是 t_link 的分片键。缺了它 ShardingSphere 无法路由，会抛
+        // 「Please check your sharding conditions ... routing to multiple data nodes」，
+        // 最终被全局异常处理器兜成 B000001 系统执行出错 —— 但这本质是调用方参数错误，
+        // 所以在进入数据库之前就拦下，给出可读提示。
+        if (StrUtil.isBlank(requestParam.getGid())) {
+            throw new ClientException("分组标识不能为空");
+        }
         verificationWhitelist(requestParam.getOriginUrl());
         String shortLinkSuffix = generateSuffix(requestParam);
         String fullShortUrl = createShortLinkDefaultDomain + "/" + shortLinkSuffix;
