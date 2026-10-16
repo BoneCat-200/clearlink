@@ -3,6 +3,7 @@ package com.gugucat.shortlink.admin.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.remote.ShortLinkActualRemoteService;
+import com.gugucat.shortlink.admin.remote.dto.req.RecycleBinRecoverReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.RecycleBinSaveReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkRecycleBinPageReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkPageRespDTO;
@@ -40,5 +41,13 @@ public class RecycleBinController {
     @GetMapping("/api/clearlink/admin/v0.1/recycle-bin/page")
     public Result<Page<ShortLinkPageRespDTO>> pageShortLink(ShortLinkRecycleBinPageReqDTO requestParam) {
         return recycleBinService.pageRecycleBinShortLink(requestParam);
+    }
+
+    /**
+     * 从回收站恢复短链接
+     */
+    @PostMapping("/api/clearlink/admin/v0.1/recycle-bin/recover")
+    public Result<Void> recoverRecycleBin(@RequestBody RecycleBinRecoverReqDTO requestParam) {
+        return shortLinkActualRemoteService.recoverRecycleBin(requestParam);
     }
 }
