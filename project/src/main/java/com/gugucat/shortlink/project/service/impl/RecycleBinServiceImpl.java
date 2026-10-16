@@ -1,0 +1,51 @@
+package com.gugucat.shortlink.project.service.impl;
+
+import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.gugucat.shortlink.project.common.constant.RedisKeyConstant;
+import com.gugucat.shortlink.project.common.convention.exception.ClientException;
+import com.gugucat.shortlink.project.dao.entity.ShortLinkDO;
+import com.gugucat.shortlink.project.dao.mapper.ShortLinkMapper;
+import com.gugucat.shortlink.project.dto.req.RecycleBinSaveReqDTO;
+import com.gugucat.shortlink.project.service.RecycleBinService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+
+/**
+ * 回收站管理接口实现层
+ */
+@Service
+@RequiredArgsConstructor
+public class RecycleBinServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLinkDO> implements RecycleBinService {
+
+    private final StringRedisTemplate stringRedisTemplate;
+
+    @Override
+    public void saveRecycleBin(RecycleBinSaveReqDTO requestParam) {
+        // gid 是 t_link 的分片键，缺了它 ShardingSphere 无法路由
+        if (StrUtil.isBlank(requestParam.getGid()) || StrUtil.isBlank(requestParam.getFullShortUrl())) {
+            throw new ClientException("完整短链接与分组标识不能为空");
+        }
+        // 「在不在回收站」用的是 enable_status，不是 del_flag：
+        // del_flag 留给「彻底删除」，两者的区别是回收站里的记录还能恢复
+        LambdaUpdateWrapper<ShortLinkDO> updateWrapper = Wrappers.lambdaUpdate(ShortLinkDO.class)
+                .eq(ShortLinkDO::getFullShortUrl, requestParam.getFullShortUrl())
+                .eq(ShortLinkDO::getGid, requestParam.getGid())
+                .eq(ShortLinkDO::getEnableStatus, 0)
+                .eq(ShortLinkDO::getDelTime, 0L)
+                .eq(ShortLinkDO::getDelFlag, 0);
+        ShortLinkDO shortLinkDO = ShortLinkDO.builder()
+                .enableStatus(1)
+                .build();
+        if (baseMapper.update(shortLinkDO, updateWrapper) < 1) {
+            // 影响行数为 0 时若静默返回成功，前端会以为操作生效了、但列表毫无变化
+            throw new ClientException("短链接不存在或已在回收站中");
+        }
+        // 移入回收站后这条短链接就不能再跳转了，缓存必须立刻失效，
+        // 否则用户点进去还能访问一个「已删除」的链接（缓存的 TTL 可能长达 30 天）
+        stringRedisTemplate.delete(String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
+    }
+}

@@ -2,6 +2,7 @@ package com.gugucat.shortlink.admin.remote;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
+import com.gugucat.shortlink.admin.remote.dto.req.RecycleBinSaveReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkUpdateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkCreateRespDTO;
@@ -64,4 +65,16 @@ public interface ShortLinkActualRemoteService {
      */
     @GetMapping("/api/clearlink/v0.1/title")
     Result<String> getTitleByUrl(@RequestParam("url") String url);
+
+    /**
+     * 将短链接移入回收站
+     * <p>
+     * 返回 Result 而不是 void：中台的业务异常（如「短链接不存在或已在回收站中」）是以
+     * HTTP 200 + 错误码 的形式返回的，声明成 void 会把错误码整个丢掉、后管误报成功。
+     *
+     * @param requestParam 移入回收站请求参数
+     * @return 操作结果
+     */
+    @PostMapping("/api/clearlink/v0.1/recycle-bin/save")
+    Result<Void> saveRecycleBin(@RequestBody RecycleBinSaveReqDTO requestParam);
 }
