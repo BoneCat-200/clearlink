@@ -189,7 +189,7 @@ curl -i "http://127.0.0.1:8001/<short-uri>"
 ## API 文档
 
 - Apifox 在线文档：<https://xhg7vl37t5.apifox.cn>
-- 本地文档：根目录《接口文档.md》，包含各接口的请求与响应字段表、请求参数汇总、错误码以及接口清单总表。
+- 本地文档：[docs/接口文档.md](docs/接口文档.md)，包含各接口的请求与响应字段表、请求参数汇总、错误码以及接口清单总表。
 
 ## 项目结构
 
@@ -228,5 +228,6 @@ clearlink
 │           ├── mapper/LinkMapper.xml        自定义分页 SQL
 │           └── templates/notfound.html      短链接不存在的提示页
 ├── gateway/                    网关模块，端口 8000，未实现
-└── 接口文档.md                 接口契约文档
+└── docs/
+    └── 接口文档.md             接口契约文档
 ```
