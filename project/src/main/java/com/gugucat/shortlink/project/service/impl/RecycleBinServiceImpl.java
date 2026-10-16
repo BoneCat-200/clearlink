@@ -1,7 +1,10 @@
 package com.gugucat.shortlink.project.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.project.common.constant.RedisKeyConstant;
@@ -9,6 +12,8 @@ import com.gugucat.shortlink.project.common.convention.exception.ClientException
 import com.gugucat.shortlink.project.dao.entity.ShortLinkDO;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkMapper;
 import com.gugucat.shortlink.project.dto.req.RecycleBinSaveReqDTO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkRecycleBinPageReqDTO;
+import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
 import com.gugucat.shortlink.project.service.RecycleBinService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -47,5 +52,21 @@ public class RecycleBinServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLin
         // 移入回收站后这条短链接就不能再跳转了，缓存必须立刻失效，
         // 否则用户点进去还能访问一个「已删除」的链接（缓存的 TTL 可能长达 30 天）
         stringRedisTemplate.delete(String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
+    }
+
+    @Override
+    public IPage<ShortLinkPageRespDTO> pageShortLink(ShortLinkRecycleBinPageReqDTO requestParam) {
+        // gidList 为空时 XML 里的 <foreach> 会生成 `IN ()` —— 一个语法错误的 SQL，
+        // 最终只会得到一句难懂的「系统执行出错」。这里提前拦下并说清原因
+        if (CollUtil.isEmpty(requestParam.getGidList())) {
+            throw new ClientException("分组标识不能为空");
+        }
+        IPage<ShortLinkDO> resultPage = baseMapper.pageRecycleBinLink(requestParam);
+        return resultPage.convert(each -> {
+            ShortLinkPageRespDTO result = BeanUtil.toBean(each, ShortLinkPageRespDTO.class);
+            // 与正常列表一致：库里存的是不带协议的 domain，前端要直接当链接用，这里补上协议
+            result.setDomain("http://" + result.getDomain());
+            return result;
+        });
     }
 }

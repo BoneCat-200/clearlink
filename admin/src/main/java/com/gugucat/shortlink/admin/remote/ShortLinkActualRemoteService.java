@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.util.List;
+
 /**
  * 短链接中台远程调用服务
  * <p>
@@ -77,4 +79,17 @@ public interface ShortLinkActualRemoteService {
      */
     @PostMapping("/api/clearlink/v0.1/recycle-bin/save")
     Result<Void> saveRecycleBin(@RequestBody RecycleBinSaveReqDTO requestParam);
+
+    /**
+     * 分页查询回收站短链接
+     *
+     * @param gidList 分组标识集合
+     * @param current 当前页
+     * @param size    每页条数
+     * @return 查询回收站短链接响应
+     */
+    @GetMapping("/api/clearlink/v0.1/recycle-bin/page")
+    Result<Page<ShortLinkPageRespDTO>> pageRecycleBinShortLink(@RequestParam("gidList") List<String> gidList,
+                                                               @RequestParam("current") Long current,
+                                                               @RequestParam("size") Long size);
 }

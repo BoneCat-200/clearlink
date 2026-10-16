@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkDO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkPageReqDTO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkRecycleBinPageReqDTO;
 
 /**
  * 短链接持久层
@@ -17,4 +18,12 @@ public interface ShortLinkMapper extends BaseMapper<ShortLinkDO> {
      * @return 短链接分页结果
      */
     IPage<ShortLinkDO> pageLink(ShortLinkPageReqDTO requestParam);
+
+    /**
+     * 分页查询回收站短链接
+     *
+     * @param requestParam 分页查询参数（含 gidList 与分页信息）
+     * @return 回收站短链接分页结果
+     */
+    IPage<ShortLinkDO> pageRecycleBinLink(ShortLinkRecycleBinPageReqDTO requestParam);
 }
