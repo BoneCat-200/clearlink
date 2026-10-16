@@ -1,0 +1,47 @@
+# 数据源集合
+dataSources:
+  ds_0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://127.0.0.1:3306/link?useUnicode=true&characterEncoding=UTF-8&rewriteBatchedStatements=true&allowMultiQueries=true&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: root
+    password: 123456
+
+rules:
+  - !SHARDING
+    tables:
+      # 短链接表按 gid 分片：同一分组下所有短链接落在同一张物理表，
+      # 分页查询按 gid 过滤时可精确路由到单表
+      t_link:
+        # 真实数据节点，比如数据库源以及数据库在数据库中真实存在的
+        actualDataNodes: ds_0.t_link_${0..15}
+        # 分表策略
+        tableStrategy:
+          # 用于单分片键的标准分片场景
+          standard:
+            # 分片键
+            shardingColumn: gid
+            # 分片算法，哈希取模
+            shardingAlgorithmName: link_table_hash_mod
+      # 短链接跳转表按 full_short_url 分片：
+      # 跳转时请求里只有短码，拼出的 full_short_url 才是唯一可用的分片键（此时还没有 gid）
+      t_link_goto:
+        actualDataNodes: ds_0.t_link_goto_${0..15}
+        tableStrategy:
+          standard:
+            shardingColumn: full_short_url
+            shardingAlgorithmName: link_goto_table_hash_mod
+    # 分片算法
+    shardingAlgorithms:
+      link_table_hash_mod:
+        # 根据分片键 Hash 分片
+        type: HASH_MOD
+        props:
+          sharding-count: 16
+      link_goto_table_hash_mod:
+        type: HASH_MOD
+        props:
+          sharding-count: 16
+# 展现逻辑 SQL & 真实 SQL
+props:
+  sql-show: true
