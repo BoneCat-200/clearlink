@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.project.common.constant.RedisKeyConstant;
+import com.gugucat.shortlink.project.common.constant.ShortLinkConstant;
 import com.gugucat.shortlink.project.common.convention.exception.ClientException;
 import com.gugucat.shortlink.project.common.convention.exception.ServiceException;
 import com.gugucat.shortlink.project.common.enums.ValidDateTypeEnum;
@@ -115,13 +116,17 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             }
             throw new ServiceException(String.format("短链接：%s 生成重复", fullShortUrl));
         }
-        // 缓存预热：创建时就把跳转映射写进 Redis，避免短链接刚发出就被访问时的一次缓存穿透
-        stringRedisTemplate.opsForValue().set(
-                String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, fullShortUrl),
-                requestParam.getOriginUrl(),
-                LinkUtil.getLinkCacheValidTime(requestParam.getValidDate()),
-                TimeUnit.MILLISECONDS
-        );
+        // 缓存预热：创建时就把跳转映射写进 Redis，避免短链接刚发出就被访问时的一次缓存穿透。
+        // 有效期已经过去的短链接不写缓存 —— getLinkCacheValidTime 会返回非正数，Redis 不接受非正的过期时间
+        long cacheValidTime = LinkUtil.getLinkCacheValidTime(requestParam.getValidDate());
+        if (cacheValidTime > 0) {
+            stringRedisTemplate.opsForValue().set(
+                    String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, fullShortUrl),
+                    requestParam.getOriginUrl(),
+                    cacheValidTime,
+                    TimeUnit.MILLISECONDS
+            );
+        }
         shortUriCreateCachePenetrationBloomFilter.add(fullShortUrl);
         return ShortLinkCreateRespDTO.builder()
                 .fullShortUrl("http://" + shortLinkDO.getFullShortUrl())
@@ -232,6 +237,11 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 || !Objects.equals(hasShortLinkDO.getValidDate(), requestParam.getValidDate())
                 || !Objects.equals(hasShortLinkDO.getOriginUrl(), requestParam.getOriginUrl())) {
             stringRedisTemplate.delete(String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
+            // 原来是过期状态、改完之后变成有效（改成永久或改成将来的时间）时，
+            // 还得把「不存在」的空值缓存也删掉，否则它会在剩余的 TTL 内继续把跳转请求挡在门外
+            if (LinkUtil.isExpired(hasShortLinkDO.getValidDate()) && !LinkUtil.isExpired(requestParam.getValidDate())) {
+                stringRedisTemplate.delete(String.format(RedisKeyConstant.GOTO_IS_NULL_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
+            }
         }
     }
 
@@ -247,41 +257,74 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 .map(each -> ":" + each)
                 .orElse("");
         String fullShortUrl = serverName + serverPort + "/" + shortUri;
+        String gotoShortLinkKey = String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, fullShortUrl);
+        String gotoIsNullShortLinkKey = String.format(RedisKeyConstant.GOTO_IS_NULL_SHORT_LINK_KEY, fullShortUrl);
         // 第一条路径：缓存命中，直接重定向，一次数据库都不碰
-        String originalLink = stringRedisTemplate.opsForValue().get(String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, fullShortUrl));
+        String originalLink = stringRedisTemplate.opsForValue().get(gotoShortLinkKey);
         if (StrUtil.isNotBlank(originalLink)) {
             ((HttpServletResponse) response).sendRedirect(originalLink);
             return;
         }
-        // 缓存未命中：先用 t_link_goto 拿 gid。这张表按 full_short_url 分片，
-        // 正因为跳转时只有短码、没有 gid，才需要这张「短链接 → gid」的索引表
-        LambdaQueryWrapper<ShortLinkGotoDO> linkGotoQueryWrapper = Wrappers.lambdaQuery(ShortLinkGotoDO.class)
-                .eq(ShortLinkGotoDO::getFullShortUrl, fullShortUrl);
-        ShortLinkGotoDO shortLinkGotoDO = shortLinkGotoMapper.selectOne(linkGotoQueryWrapper);
-        if (shortLinkGotoDO == null) {
+        // 防缓存穿透第一道：布隆过滤器说「一定不存在」时就不用查库了。
+        // 攻击者拿随机短码刷接口时，请求会全部停在这里，数据库不受影响
+        if (!shortUriCreateCachePenetrationBloomFilter.contains(fullShortUrl)) {
             noFound(response);
             return;
         }
-        // 拿 gid 之后才能精确路由到 t_link 的某一张物理表
-        LambdaQueryWrapper<ShortLinkDO> queryWrapper = Wrappers.lambdaQuery(ShortLinkDO.class)
-                .eq(ShortLinkDO::getGid, shortLinkGotoDO.getGid())
-                .eq(ShortLinkDO::getFullShortUrl, fullShortUrl)
-                .eq(ShortLinkDO::getDelFlag, 0)
-                .eq(ShortLinkDO::getEnableStatus, 0);
-        ShortLinkDO shortLinkDO = baseMapper.selectOne(queryWrapper);
-        // 记录不存在，或者已过有效期，都不能跳转
-        if (shortLinkDO == null || (shortLinkDO.getValidDate() != null && shortLinkDO.getValidDate().before(new Date()))) {
+        // 防缓存穿透第二道：空值缓存。布隆过滤器只会说「可能存在」，
+        // 若不做这层，一个不存在的短码每次都要放行到查库，等于穿透了缓存
+        if (StrUtil.isNotBlank(stringRedisTemplate.opsForValue().get(gotoIsNullShortLinkKey))) {
             noFound(response);
             return;
         }
-        // 回填缓存，TTL 取有效期剩余时间，让缓存的自然过期时间与短链接的失效时间对齐
-        stringRedisTemplate.opsForValue().set(
-                String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, fullShortUrl),
-                shortLinkDO.getOriginUrl(),
-                LinkUtil.getLinkCacheValidTime(shortLinkDO.getValidDate()),
-                TimeUnit.MILLISECONDS
-        );
-        ((HttpServletResponse) response).sendRedirect(shortLinkDO.getOriginUrl());
+        // 防缓存击穿：某个热点短链接的缓存刚失效时，并发请求会同时扑向数据库。
+        // 加锁让它们排队，只有一个真去查库，其余的等锁释放后由双重检查接住
+        RLock lock = redissonClient.getLock(String.format(RedisKeyConstant.LOCK_GOTO_SHORT_LINK_KEY, fullShortUrl));
+        lock.lock();
+        try {
+            // 双重检查：等锁这段时间里，缓存可能已经被拿到锁的那个线程填好了
+            originalLink = stringRedisTemplate.opsForValue().get(gotoShortLinkKey);
+            if (StrUtil.isNotBlank(originalLink)) {
+                ((HttpServletResponse) response).sendRedirect(originalLink);
+                return;
+            }
+            if (StrUtil.isNotBlank(stringRedisTemplate.opsForValue().get(gotoIsNullShortLinkKey))) {
+                noFound(response);
+                return;
+            }
+            // 缓存未命中：先用 t_link_goto 拿 gid。这张表按 full_short_url 分片，
+            // 正因为跳转时只有短码、没有 gid，才需要这张「短链接 → gid」的索引表
+            LambdaQueryWrapper<ShortLinkGotoDO> linkGotoQueryWrapper = Wrappers.lambdaQuery(ShortLinkGotoDO.class)
+                    .eq(ShortLinkGotoDO::getFullShortUrl, fullShortUrl);
+            ShortLinkGotoDO shortLinkGotoDO = shortLinkGotoMapper.selectOne(linkGotoQueryWrapper);
+            if (shortLinkGotoDO == null) {
+                cacheNullShortLink(gotoIsNullShortLinkKey);
+                noFound(response);
+                return;
+            }
+            // 拿 gid 之后才能精确路由到 t_link 的某一张物理表
+            LambdaQueryWrapper<ShortLinkDO> queryWrapper = Wrappers.lambdaQuery(ShortLinkDO.class)
+                    .eq(ShortLinkDO::getGid, shortLinkGotoDO.getGid())
+                    .eq(ShortLinkDO::getFullShortUrl, fullShortUrl)
+                    .eq(ShortLinkDO::getDelFlag, 0)
+                    .eq(ShortLinkDO::getEnableStatus, 0);
+            ShortLinkDO shortLinkDO = baseMapper.selectOne(queryWrapper);
+            // 记录不存在，或者已过有效期，都不能跳转
+            if (shortLinkDO == null || LinkUtil.isExpired(shortLinkDO.getValidDate())) {
+                cacheNullShortLink(gotoIsNullShortLinkKey);
+                noFound(response);
+                return;
+            }
+            // 回填缓存，TTL 取有效期剩余时间，让缓存的自然过期时间与短链接的失效时间对齐。
+            // 对齐之后「缓存还在」就等价于「还没过期」，上面的缓存命中分支才敢直接放行
+            long cacheValidTime = LinkUtil.getLinkCacheValidTime(shortLinkDO.getValidDate());
+            if (cacheValidTime > 0) {
+                stringRedisTemplate.opsForValue().set(gotoShortLinkKey, shortLinkDO.getOriginUrl(), cacheValidTime, TimeUnit.MILLISECONDS);
+            }
+            ((HttpServletResponse) response).sendRedirect(shortLinkDO.getOriginUrl());
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -293,6 +336,16 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
      */
     private void noFound(ServletResponse response) {
         ((HttpServletResponse) response).setStatus(HttpServletResponse.SC_NOT_FOUND);
+    }
+
+    /**
+     * 缓存「该短链接不存在」的标记，避免同一个不存在的短码反复穿透到数据库
+     *
+     * @param gotoIsNullShortLinkKey 空值缓存 Key
+     */
+    private void cacheNullShortLink(String gotoIsNullShortLinkKey) {
+        stringRedisTemplate.opsForValue().set(
+                gotoIsNullShortLinkKey, "-", ShortLinkConstant.NULL_CACHE_VALID_TIME, TimeUnit.MINUTES);
     }
 
     @Override
