@@ -3,11 +3,15 @@ package com.gugucat.shortlink.project.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.project.common.constant.RedisKeyConstant;
 import com.gugucat.shortlink.project.common.convention.exception.ClientException;
 import com.gugucat.shortlink.project.common.convention.exception.ServiceException;
+import com.gugucat.shortlink.project.common.enums.ValidDateTypeEnum;
 import com.gugucat.shortlink.project.config.GotoDomainWhiteListConfiguration;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkDO;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkGotoDO;
@@ -15,6 +19,7 @@ import com.gugucat.shortlink.project.dao.mapper.ShortLinkGotoMapper;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkMapper;
 import com.gugucat.shortlink.project.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkPageReqDTO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkUpdateReqDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
 import com.gugucat.shortlink.project.service.ShortLinkService;
@@ -23,6 +28,9 @@ import com.gugucat.shortlink.project.toolkit.LinkUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RBloomFilter;
+import org.redisson.api.RLock;
+import org.redisson.api.RReadWriteLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -30,6 +38,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -43,6 +52,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
     private final RBloomFilter<String> shortUriCreateCachePenetrationBloomFilter;
     private final ShortLinkGotoMapper shortLinkGotoMapper;
     private final StringRedisTemplate stringRedisTemplate;
+    private final RedissonClient redissonClient;
     private final GotoDomainWhiteListConfiguration gotoDomainWhiteListConfiguration;
 
     @Value("${short-link.domain.default}")
@@ -112,6 +122,111 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 .originUrl(requestParam.getOriginUrl())
                 .gid(requestParam.getGid())
                 .build();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public void updateShortLink(ShortLinkUpdateReqDTO requestParam) {
+        // fullShortUrl / originGid / gid 都是查询或分片条件，缺一个就会在数据库层报出
+        // 难懂的「分片条件缺失」，所以在进库之前统一拦掉
+        if (StrUtil.isBlank(requestParam.getFullShortUrl())
+                || StrUtil.isBlank(requestParam.getOriginGid())
+                || StrUtil.isBlank(requestParam.getGid())) {
+            throw new ClientException("完整短链接与分组标识不能为空");
+        }
+        if (StrUtil.isBlank(requestParam.getOriginUrl())) {
+            throw new ClientException("原始链接不能为空");
+        }
+        verificationWhitelist(requestParam.getOriginUrl());
+        LambdaQueryWrapper<ShortLinkDO> queryWrapper = Wrappers.lambdaQuery(ShortLinkDO.class)
+                .eq(ShortLinkDO::getGid, requestParam.getOriginGid())
+                .eq(ShortLinkDO::getFullShortUrl, requestParam.getFullShortUrl())
+                .eq(ShortLinkDO::getDelFlag, 0)
+                .eq(ShortLinkDO::getEnableStatus, 0);
+        ShortLinkDO hasShortLinkDO = baseMapper.selectOne(queryWrapper);
+        if (hasShortLinkDO == null) {
+            throw new ClientException("短链接记录不存在");
+        }
+        if (Objects.equals(hasShortLinkDO.getGid(), requestParam.getGid())) {
+            // 分组没变：原地更新即可，只 SET 目标字段，domain、shortUri、统计数据一律不动
+            LambdaUpdateWrapper<ShortLinkDO> updateWrapper = Wrappers.lambdaUpdate(ShortLinkDO.class)
+                    .eq(ShortLinkDO::getFullShortUrl, requestParam.getFullShortUrl())
+                    .eq(ShortLinkDO::getGid, requestParam.getGid())
+                    .eq(ShortLinkDO::getDelFlag, 0)
+                    .eq(ShortLinkDO::getEnableStatus, 0)
+                    // 改成「永久有效」时必须显式把 valid_date 置空：MyBatis-Plus 会跳过实体里的 null 字段，
+                    // 只靠 builder 传 null 是清不掉这一列的
+                    .set(Objects.equals(requestParam.getValidDateType(), ValidDateTypeEnum.PERMANENT.getType()),
+                            ShortLinkDO::getValidDate, null);
+            ShortLinkDO shortLinkDO = ShortLinkDO.builder()
+                    .domain(hasShortLinkDO.getDomain())
+                    .shortUri(hasShortLinkDO.getShortUri())
+                    .createdType(hasShortLinkDO.getCreatedType())
+                    .gid(requestParam.getGid())
+                    .originUrl(requestParam.getOriginUrl())
+                    .describe(requestParam.getDescribe())
+                    .validDateType(requestParam.getValidDateType())
+                    .validDate(requestParam.getValidDate())
+                    .build();
+            baseMapper.update(shortLinkDO, updateWrapper);
+        } else {
+            // 分组变了：gid 是 t_link 的分片键，物理表跟着变，没法 UPDATE 过去，
+            // 只能「旧行逻辑删除 + 新行插入」。用写锁把这一步和统计写入互斥住，
+            // 否则迁移过程中统计可能落到正在被删的那一行上
+            RReadWriteLock readWriteLock = redissonClient.getReadWriteLock(String.format(RedisKeyConstant.LOCK_GID_UPDATE_KEY, requestParam.getFullShortUrl()));
+            RLock rLock = readWriteLock.writeLock();
+            rLock.lock();
+            try {
+                LambdaUpdateWrapper<ShortLinkDO> linkUpdateWrapper = Wrappers.lambdaUpdate(ShortLinkDO.class)
+                        .eq(ShortLinkDO::getFullShortUrl, requestParam.getFullShortUrl())
+                        .eq(ShortLinkDO::getGid, hasShortLinkDO.getGid())
+                        .eq(ShortLinkDO::getDelFlag, 0)
+                        .eq(ShortLinkDO::getDelTime, 0L)
+                        .eq(ShortLinkDO::getEnableStatus, 0);
+                ShortLinkDO delShortLinkDO = ShortLinkDO.builder()
+                        .delTime(System.currentTimeMillis())
+                        .build();
+                delShortLinkDO.setDelFlag(1);   // delFlag 在父类 BaseDO 上，Lombok @Builder 覆盖不到
+                baseMapper.update(delShortLinkDO, linkUpdateWrapper);
+
+                // 新行沿用原短码（full_short_url 不变），只换 gid；
+                // 唯一索引是 (full_short_url, del_time)，旧行 del_time 已改成时间戳，所以不会撞
+                ShortLinkDO shortLinkDO = ShortLinkDO.builder()
+                        .domain(createShortLinkDefaultDomain)
+                        .originUrl(requestParam.getOriginUrl())
+                        .gid(requestParam.getGid())
+                        .createdType(hasShortLinkDO.getCreatedType())
+                        .validDateType(requestParam.getValidDateType())
+                        .validDate(requestParam.getValidDate())
+                        .describe(requestParam.getDescribe())
+                        .shortUri(hasShortLinkDO.getShortUri())
+                        .enableStatus(hasShortLinkDO.getEnableStatus())
+                        .totalPv(hasShortLinkDO.getTotalPv())
+                        .totalUv(hasShortLinkDO.getTotalUv())
+                        .totalUip(hasShortLinkDO.getTotalUip())
+                        .fullShortUrl(hasShortLinkDO.getFullShortUrl())
+                        .delTime(0L)
+                        .build();
+                baseMapper.insert(shortLinkDO);
+
+                // 跳转表按 full_short_url 分片，短码没变所以还是同一张物理表，换掉 gid 即可
+                LambdaQueryWrapper<ShortLinkGotoDO> linkGotoQueryWrapper = Wrappers.lambdaQuery(ShortLinkGotoDO.class)
+                        .eq(ShortLinkGotoDO::getFullShortUrl, requestParam.getFullShortUrl())
+                        .eq(ShortLinkGotoDO::getGid, hasShortLinkDO.getGid());
+                ShortLinkGotoDO shortLinkGotoDO = shortLinkGotoMapper.selectOne(linkGotoQueryWrapper);
+                shortLinkGotoMapper.delete(linkGotoQueryWrapper);
+                shortLinkGotoDO.setGid(requestParam.getGid());
+                shortLinkGotoMapper.insert(shortLinkGotoDO);
+            } finally {
+                rLock.unlock();
+            }
+        }
+        // 缓存与数据库一致性：原始链接或有效期变了，缓存里那份就是错的，直接删掉让下次访问回源重建
+        if (!Objects.equals(hasShortLinkDO.getValidDateType(), requestParam.getValidDateType())
+                || !Objects.equals(hasShortLinkDO.getValidDate(), requestParam.getValidDate())
+                || !Objects.equals(hasShortLinkDO.getOriginUrl(), requestParam.getOriginUrl())) {
+            stringRedisTemplate.delete(String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
+        }
     }
 
     @Override

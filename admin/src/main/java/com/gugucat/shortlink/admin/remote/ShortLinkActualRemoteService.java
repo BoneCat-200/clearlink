@@ -3,6 +3,7 @@ package com.gugucat.shortlink.admin.remote;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkCreateReqDTO;
+import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkUpdateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkPageRespDTO;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -27,6 +28,18 @@ public interface ShortLinkActualRemoteService {
      */
     @PostMapping("/api/clearlink/v0.1/create")
     Result<ShortLinkCreateRespDTO> createShortLink(@RequestBody ShortLinkCreateReqDTO requestParam);
+
+    /**
+     * 修改短链接
+     * <p>
+     * 返回 Result 而不是 void：中台的业务异常（如「短链接记录不存在」）是以 HTTP 200 +
+     * 错误码 的形式返回的，声明成 void 会把错误码整个丢掉，后管就会误报成功。
+     *
+     * @param requestParam 修改短链接请求参数
+     * @return 修改结果
+     */
+    @PostMapping("/api/clearlink/v0.1/update")
+    Result<Void> updateShortLink(@RequestBody ShortLinkUpdateReqDTO requestParam);
 
     /**
      * 分页查询短链接

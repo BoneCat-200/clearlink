@@ -5,6 +5,7 @@ import com.gugucat.shortlink.project.common.convention.result.Result;
 import com.gugucat.shortlink.project.common.convention.result.Results;
 import com.gugucat.shortlink.project.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkPageReqDTO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkUpdateReqDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
 import com.gugucat.shortlink.project.service.ShortLinkService;
@@ -37,5 +38,14 @@ public class ShortLinkController {
     @GetMapping("/api/clearlink/v0.1/page")
     public Result<IPage<ShortLinkPageRespDTO>> pageShortLink(ShortLinkPageReqDTO requestParam) {
         return Results.success(shortLinkService.pageShortLink(requestParam));
+    }
+
+    /**
+     * 修改短链接
+     */
+    @PostMapping("/api/clearlink/v0.1/update")
+    public Result<Void> updateShortLink(@RequestBody ShortLinkUpdateReqDTO requestParam) {
+        shortLinkService.updateShortLink(requestParam);
+        return Results.success();
     }
 }

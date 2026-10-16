@@ -3,6 +3,7 @@ package com.gugucat.shortlink.project.service;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.gugucat.shortlink.project.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkPageReqDTO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkUpdateReqDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
 
@@ -26,4 +27,11 @@ public interface ShortLinkService {
      * @return 短链接分页结果
      */
     IPage<ShortLinkPageRespDTO> pageShortLink(ShortLinkPageReqDTO requestParam);
+
+    /**
+     * 修改短链接
+     *
+     * @param requestParam 修改短链接请求参数
+     */
+    void updateShortLink(ShortLinkUpdateReqDTO requestParam);
 }

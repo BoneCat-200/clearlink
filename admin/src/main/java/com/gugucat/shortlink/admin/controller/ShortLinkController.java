@@ -5,6 +5,7 @@ import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.remote.ShortLinkActualRemoteService;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkPageReqDTO;
+import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkUpdateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkPageRespDTO;
 import lombok.RequiredArgsConstructor;
@@ -39,5 +40,13 @@ public class ShortLinkController {
     public Result<Page<ShortLinkPageRespDTO>> pageShortLink(ShortLinkPageReqDTO requestParam) {
         return shortLinkActualRemoteService.pageShortLink(
                 requestParam.getGid(), requestParam.getOrderTag(), requestParam.getCurrent(), requestParam.getSize());
+    }
+
+    /**
+     * 修改短链接
+     */
+    @PostMapping("/api/clearlink/admin/v0.1/update")
+    public Result<Void> updateShortLink(@RequestBody ShortLinkUpdateReqDTO requestParam) {
+        return shortLinkActualRemoteService.updateShortLink(requestParam);
     }
 }
