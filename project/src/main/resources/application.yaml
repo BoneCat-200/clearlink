@@ -9,7 +9,29 @@ spring:
     driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
     # ShardingSphere 配置文件路径
     url: jdbc:shardingsphere:classpath:shardingsphere-config.yaml
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: 123456
   cloud:
     nacos:
       discovery:
         server-addr: 127.0.0.1:8848
+
+short-link:
+  domain:
+    # 生成短链接时使用的默认域名。
+    # 必须与「浏览器访问短链接时的 host:port」一致：跳转时 fullShortUrl 由
+    # request.getServerName() + port 拼成，两边不一致会导致缓存与数据库都查不到记录
+    default: 127.0.0.1:8001
+  goto-domain:
+    white-list:
+      # 白名单用于限制可跳转的目标域名，避免被当成开放跳板使用；本地联调关闭
+      enable: false
+      names: '拿个offer,知乎,掘金,博客园'
+      details:
+        - nageoffer.com
+        - zhihu.com
+        - juejin.cn
+        - cnblogs.com
