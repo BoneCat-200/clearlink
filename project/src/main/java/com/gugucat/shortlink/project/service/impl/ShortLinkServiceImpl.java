@@ -25,7 +25,11 @@ import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
 import com.gugucat.shortlink.project.service.ShortLinkService;
 import com.gugucat.shortlink.project.toolkit.HashUtil;
 import com.gugucat.shortlink.project.toolkit.LinkUtil;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RBloomFilter;
 import org.redisson.api.RLock;
@@ -37,8 +41,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -227,6 +233,66 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 || !Objects.equals(hasShortLinkDO.getOriginUrl(), requestParam.getOriginUrl())) {
             stringRedisTemplate.delete(String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
         }
+    }
+
+    @SneakyThrows   // sendRedirect 声明了受检的 IOException，而接口方法没有 throws
+    @Override
+    public void restoreUrl(String shortUri, ServletRequest request, ServletResponse response) {
+        // 请求进来时手上只有短码，先把「host:port/短码」拼回完整短链接：
+        // 这才是缓存 key 与唯一索引用的标识
+        String serverName = request.getServerName();
+        String serverPort = Optional.of(request.getServerPort())
+                .filter(each -> !Objects.equals(each, 80))   // 默认端口不参与拼接，避免与建链时存的域名对不上
+                .map(String::valueOf)
+                .map(each -> ":" + each)
+                .orElse("");
+        String fullShortUrl = serverName + serverPort + "/" + shortUri;
+        // 第一条路径：缓存命中，直接重定向，一次数据库都不碰
+        String originalLink = stringRedisTemplate.opsForValue().get(String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, fullShortUrl));
+        if (StrUtil.isNotBlank(originalLink)) {
+            ((HttpServletResponse) response).sendRedirect(originalLink);
+            return;
+        }
+        // 缓存未命中：先用 t_link_goto 拿 gid。这张表按 full_short_url 分片，
+        // 正因为跳转时只有短码、没有 gid，才需要这张「短链接 → gid」的索引表
+        LambdaQueryWrapper<ShortLinkGotoDO> linkGotoQueryWrapper = Wrappers.lambdaQuery(ShortLinkGotoDO.class)
+                .eq(ShortLinkGotoDO::getFullShortUrl, fullShortUrl);
+        ShortLinkGotoDO shortLinkGotoDO = shortLinkGotoMapper.selectOne(linkGotoQueryWrapper);
+        if (shortLinkGotoDO == null) {
+            noFound(response);
+            return;
+        }
+        // 拿 gid 之后才能精确路由到 t_link 的某一张物理表
+        LambdaQueryWrapper<ShortLinkDO> queryWrapper = Wrappers.lambdaQuery(ShortLinkDO.class)
+                .eq(ShortLinkDO::getGid, shortLinkGotoDO.getGid())
+                .eq(ShortLinkDO::getFullShortUrl, fullShortUrl)
+                .eq(ShortLinkDO::getDelFlag, 0)
+                .eq(ShortLinkDO::getEnableStatus, 0);
+        ShortLinkDO shortLinkDO = baseMapper.selectOne(queryWrapper);
+        // 记录不存在，或者已过有效期，都不能跳转
+        if (shortLinkDO == null || (shortLinkDO.getValidDate() != null && shortLinkDO.getValidDate().before(new Date()))) {
+            noFound(response);
+            return;
+        }
+        // 回填缓存，TTL 取有效期剩余时间，让缓存的自然过期时间与短链接的失效时间对齐
+        stringRedisTemplate.opsForValue().set(
+                String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, fullShortUrl),
+                shortLinkDO.getOriginUrl(),
+                LinkUtil.getLinkCacheValidTime(shortLinkDO.getValidDate()),
+                TimeUnit.MILLISECONDS
+        );
+        ((HttpServletResponse) response).sendRedirect(shortLinkDO.getOriginUrl());
+    }
+
+    /**
+     * 短链接不可跳转时的响应
+     * <p>
+     * 当前直接返回 404，后续会改成跳转到提示页。
+     *
+     * @param response HTTP 响应
+     */
+    private void noFound(ServletResponse response) {
+        ((HttpServletResponse) response).setStatus(HttpServletResponse.SC_NOT_FOUND);
     }
 
     @Override
