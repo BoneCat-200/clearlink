@@ -29,6 +29,13 @@ short-link:
     # 必须与「浏览器访问短链接时的 host:port」一致：跳转时 fullShortUrl 由
     # request.getServerName() + port 拼成，两边不一致会导致缓存与数据库都查不到记录
     default: 127.0.0.1:8001
+  stats:
+    locale:
+      # 高德逆地理的应用 key，用于把访问者 IP 转成省/市。
+      # 这里只写占位符、不给默认值：key 属于个人凭据，不能进配置文件与提交历史。
+      # 启动时用环境变量注入，例如 AMAP_KEY=xxxx java -jar ...
+      # 不注入时消费端会跳过这次调用，地区维度统一记为「未知」，其余维度照常统计
+      amap-key: ${AMAP_KEY:}
   goto-domain:
     white-list:
       # 白名单用于限制可跳转的目标域名，避免被当成开放跳板使用；本地联调关闭

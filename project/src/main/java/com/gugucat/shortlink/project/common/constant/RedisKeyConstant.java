@@ -36,6 +36,11 @@ public class RedisKeyConstant {
     public static final String SHORT_LINK_STATS_STREAM_TOPIC_KEY = "clearlink:stats-stream";
 
     /**
+     * 短链接监控消息保存队列 Group 缓存标识
+     */
+    public static final String SHORT_LINK_STATS_STREAM_GROUP_KEY = "clearlink:stats-stream:only-group";
+
+    /**
      * 短链接统计判断是否新用户缓存标识
      * <p>
      * 用 Set 保存该短链接出现过的 uv，用来判断这次访问是不是这个访客的第一次。

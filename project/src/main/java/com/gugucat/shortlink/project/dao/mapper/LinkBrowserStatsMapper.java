@@ -1,0 +1,25 @@
+package com.gugucat.shortlink.project.dao.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.gugucat.shortlink.project.dao.entity.LinkBrowserStatsDO;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Param;
+
+/**
+ * 浏览器统计访问持久层
+ */
+public interface LinkBrowserStatsMapper extends BaseMapper<LinkBrowserStatsDO> {
+
+    /**
+     * 累加浏览器访问监控数据
+     * <p>
+     * 唯一键是 (full_short_url, date, browser)，重复插入时累加 cnt。
+     *
+     * @param linkBrowserStatsDO 本次访问的浏览器统计数据
+     */
+    @Insert("INSERT INTO " +
+            "t_link_browser_stats (full_short_url, date, cnt, browser, create_time, update_time, del_flag) " +
+            "VALUES( #{linkBrowserStats.fullShortUrl}, #{linkBrowserStats.date}, #{linkBrowserStats.cnt}, #{linkBrowserStats.browser}, NOW(), NOW(), 0) " +
+            "ON DUPLICATE KEY UPDATE cnt = cnt + #{linkBrowserStats.cnt};")
+    void shortLinkBrowserState(@Param("linkBrowserStats") LinkBrowserStatsDO linkBrowserStatsDO);
+}
