@@ -2,8 +2,12 @@ package com.gugucat.shortlink.project.dao.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.gugucat.shortlink.project.dao.entity.LinkDeviceStatsDO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkStatsReqDTO;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+
+import java.util.List;
 
 /**
  * 访问设备统计访问持久层
@@ -22,4 +26,28 @@ public interface LinkDeviceStatsMapper extends BaseMapper<LinkDeviceStatsDO> {
             "VALUES( #{linkDeviceStats.fullShortUrl}, #{linkDeviceStats.date}, #{linkDeviceStats.cnt}, #{linkDeviceStats.device}, NOW(), NOW(), 0) " +
             "ON DUPLICATE KEY UPDATE cnt = cnt + #{linkDeviceStats.cnt};")
     void shortLinkDeviceState(@Param("linkDeviceStats") LinkDeviceStatsDO linkDeviceStatsDO);
+
+    /**
+     * 按访问设备汇总指定日期内的访问量
+     *
+     * @param requestParam 监控查询参数
+     * @return 每种设备一条的 cnt
+     */
+    @Select("""
+            SELECT
+                tlds.device,
+                SUM(tlds.cnt) AS cnt
+            FROM
+                t_link tl INNER JOIN
+                t_link_device_stats tlds ON tl.full_short_url = tlds.full_short_url
+            WHERE
+                tlds.full_short_url = #{param.fullShortUrl}
+                AND tl.gid = #{param.gid}
+                AND tl.del_flag = '0'
+                AND tl.enable_status = #{param.enableStatus}
+                AND tlds.date BETWEEN #{param.startDate} and #{param.endDate}
+            GROUP BY
+                tlds.full_short_url, tl.gid, tlds.device;
+            """)
+    List<LinkDeviceStatsDO> listDeviceStatsByShortLink(@Param("param") ShortLinkStatsReqDTO requestParam);
 }
