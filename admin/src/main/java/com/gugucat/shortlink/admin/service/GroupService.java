@@ -15,9 +15,21 @@ import java.util.List;
 public interface GroupService extends IService<GroupDO> {
 
     /**
-     * 创建分组
+     * 创建分组（分组归属当前登录用户）
+     *
+     * @param groupName 分组名称
      */
     void saveGroup(String groupName);
+
+    /**
+     * 为指定用户创建分组
+     * <p>
+     * 注册接口是免鉴权的，调用时 UserContext 里没有用户，所以归属人必须显式传进来。
+     *
+     * @param username  分组归属用户名
+     * @param groupName 分组名称
+     */
+    void saveGroup(String username, String groupName);
 
     /**
      * 查询分组

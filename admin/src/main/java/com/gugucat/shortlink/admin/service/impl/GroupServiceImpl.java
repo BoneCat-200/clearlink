@@ -28,14 +28,19 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
 
     @Override
     public void saveGroup(String groupName) {
+        saveGroup(UserContext.getUsername(), groupName);    // 归属人取当前登录用户
+    }
+
+    @Override
+    public void saveGroup(String username, String groupName) {
         String gid;
         do {
             gid = RandomGIDUtils.generate();
-        }while (hasGid(gid));   //  循环生成 gid，直到生成的 gid 不存在于数据库中
+        }while (hasGid(username, gid));   //  循环生成 gid，直到生成的 gid 不存在于数据库中
         GroupDO groupDO = GroupDO.builder()
                 .gid(gid)
                 .sortOrder(0)
-                .username(UserContext.getUsername())
+                .username(username)
                 .name(groupName)
                 .build();
         baseMapper.insert(groupDO);
@@ -91,13 +96,14 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
 
     /**
      * 检查分组gid是否已存在
+     * @param username 分组归属用户名
      * @param gid 分组gid
      * @return 是否存在 true-存在 false-不存在
      */
-    private boolean hasGid(String gid) {
+    private boolean hasGid(String username, String gid) {
         LambdaQueryWrapper<GroupDO> eq = Wrappers.lambdaQuery(GroupDO.class)
                 .eq(GroupDO::getGid, gid)
-                .eq(GroupDO::getUsername,UserContext.getUsername());
+                .eq(GroupDO::getUsername, username);
         GroupDO hasGroupFlag = baseMapper.selectOne(eq);
         return hasGroupFlag != null;
 //        return baseMapper.exists(eq);

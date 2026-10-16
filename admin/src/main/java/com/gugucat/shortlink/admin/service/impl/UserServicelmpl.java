@@ -14,6 +14,7 @@ import com.gugucat.shortlink.admin.dto.req.UserRegisterReqDTO;
 import com.gugucat.shortlink.admin.dto.req.UserUpdateReqDTO;
 import com.gugucat.shortlink.admin.dto.resp.UserLoginRespDTO;
 import com.gugucat.shortlink.admin.dto.resp.UserRespDTO;
+import com.gugucat.shortlink.admin.service.GroupService;
 import com.gugucat.shortlink.admin.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RBloomFilter;
@@ -22,6 +23,7 @@ import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -37,6 +39,7 @@ public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements 
     private final RBloomFilter<String> userRegisterCachePenetrationBloomFilter;
     private final RedissonClient redissonClient;
     private final StringRedisTemplate stringRedisTemplate;
+    private final GroupService groupService;
 
     @Override
     public UserRespDTO getUserByUsername(String username) {
@@ -57,6 +60,7 @@ public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements 
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)   // 用户与默认分组是一笔账，分组建失败不能让用户留下来
     public void register(UserRegisterReqDTO requestParam) {
         if (hasUserName(requestParam.getUsername())){
             throw new ClientException(UserErrorCodeEnum.USER_NAME_EXIST);
@@ -68,6 +72,9 @@ public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements 
                 if (insert < 1) {
                     throw new ClientException(UserErrorCodeEnum.USER_EXIST);
                 }
+                // 新用户默认带一个分组：否则建链时没有 gid 可用，前端也看不到任何分组
+                // 注册是免鉴权接口，此刻 UserContext 为空，所以归属人要显式传进去
+                groupService.saveGroup(requestParam.getUsername(), "默认分组");
                 userRegisterCachePenetrationBloomFilter.add(requestParam.getUsername());    // 将用户名添加到布隆过滤器中
                 return;
             }
