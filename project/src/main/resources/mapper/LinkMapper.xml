@@ -60,6 +60,8 @@
         </foreach>
         AND t.enable_status = 1
         AND t.del_flag = 0
-        ORDER BY t.update_time
+        <!-- 按移入回收站的时间倒序：update_time 在移入时会被刷新，
+             刚删掉的排最前面才符合回收站的使用直觉（参考实现少了 DESC，本次改掉） -->
+        ORDER BY t.update_time DESC
     </select>
 </mapper>
