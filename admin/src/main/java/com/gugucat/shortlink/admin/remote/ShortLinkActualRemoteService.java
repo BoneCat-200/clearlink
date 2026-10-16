@@ -137,4 +137,17 @@ public interface ShortLinkActualRemoteService {
                                                     @RequestParam("enableStatus") Integer enableStatus,
                                                     @RequestParam("startDate") String startDate,
                                                     @RequestParam("endDate") String endDate);
+
+    /**
+     * 获取指定分组在指定日期内的监控数据
+     *
+     * @param gid       分组标识
+     * @param startDate 开始日期
+     * @param endDate   结束日期
+     * @return 分组短链接监控数据
+     */
+    @GetMapping("/api/clearlink/v0.1/stats/group")
+    Result<ShortLinkStatsRespDTO> groupShortLinkStats(@RequestParam("gid") String gid,
+                                                      @RequestParam("startDate") String startDate,
+                                                      @RequestParam("endDate") String endDate);
 }

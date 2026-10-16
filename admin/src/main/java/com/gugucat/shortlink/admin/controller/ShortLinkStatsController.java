@@ -2,6 +2,7 @@ package com.gugucat.shortlink.admin.controller;
 
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.remote.ShortLinkActualRemoteService;
+import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkGroupStatsReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkStatsReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkStatsRespDTO;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +31,18 @@ public class ShortLinkStatsController {
                 requestParam.getFullShortUrl(),
                 requestParam.getGid(),
                 requestParam.getEnableStatus(),
+                requestParam.getStartDate(),
+                requestParam.getEndDate()
+        );
+    }
+
+    /**
+     * 访问指定分组在指定日期内的监控数据
+     */
+    @GetMapping("/api/clearlink/admin/v0.1/stats/group")
+    public Result<ShortLinkStatsRespDTO> groupShortLinkStats(ShortLinkGroupStatsReqDTO requestParam) {
+        return shortLinkActualRemoteService.groupShortLinkStats(
+                requestParam.getGid(),
                 requestParam.getStartDate(),
                 requestParam.getEndDate()
         );
