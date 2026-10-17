@@ -202,6 +202,13 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 || StrUtil.isBlank(requestParam.getGid())) {
             throw new ClientException("完整短链接与分组标识不能为空");
         }
+        // 归属校验：链接的归属由它所在的分组决定。
+        // 不校验的话，只要知道 fullShortUrl 和 gid，任何登录用户都能改别人的链接；
+        // 换组时目标分组也要校验，否则可以把链接挪进别人的分组
+        checkGroupBelongToUser(requestParam.getOriginGid());
+        if (!Objects.equals(requestParam.getOriginGid(), requestParam.getGid())) {
+            checkGroupBelongToUser(requestParam.getGid());
+        }
         if (StrUtil.isBlank(requestParam.getOriginUrl())) {
             throw new ClientException("原始链接不能为空");
         }
@@ -536,6 +543,9 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
 
     @Override
     public IPage<ShortLinkPageRespDTO> pageShortLink(ShortLinkPageReqDTO requestParam) {
+        // 列表按 gid 查询，gid 是调用方可控参数；不校验归属的话，
+        // 换个 gid 就能看到别人分组下的全部短链接
+        checkGroupBelongToUser(requestParam.getGid());
         IPage<ShortLinkDO> resultPage = baseMapper.pageLink(requestParam);
         return resultPage.convert(each -> {
             ShortLinkPageRespDTO result = BeanUtil.toBean(each, ShortLinkPageRespDTO.class);
