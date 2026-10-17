@@ -23,3 +23,12 @@ short-link:
   group:
     # 每个用户最多能创建的分组数
     max-num: 20
+  flow-limit:
+    # 用户流量风控：在时间窗口内限制单个调用方的请求数。
+    # 本地联调默认关闭 —— 打开后自己的验证脚本会先被限流。
+    # 公网部署时改成 true（也可按 profile 覆盖）。
+    enable: false
+    # 时间窗口，单位秒
+    time-window: 1
+    # 时间窗口内允许的最大访问次数
+    max-access-count: 20
