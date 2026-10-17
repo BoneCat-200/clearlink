@@ -20,10 +20,12 @@ import com.gugucat.shortlink.project.common.convention.exception.ServiceExceptio
 import com.gugucat.shortlink.project.common.enums.ValidDateTypeEnum;
 import com.gugucat.shortlink.project.config.CreateDomainConfiguration;
 import com.gugucat.shortlink.project.config.GotoDomainWhiteListConfiguration;
+import com.gugucat.shortlink.project.dao.entity.GroupDO;
 import com.gugucat.shortlink.project.dao.entity.LinkChangeLogDO;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkDO;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkGotoDO;
 import com.gugucat.shortlink.project.dao.mapper.LinkChangeLogMapper;
+import com.gugucat.shortlink.project.dao.mapper.LinkGroupMapper;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkGotoMapper;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkMapper;
 import com.gugucat.shortlink.project.dto.biz.ShortLinkStatsRecordDTO;
@@ -83,6 +85,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
     private final RBloomFilter<String> shortUriCreateCachePenetrationBloomFilter;
     private final ShortLinkGotoMapper shortLinkGotoMapper;
     private final LinkChangeLogMapper linkChangeLogMapper;
+    private final LinkGroupMapper linkGroupMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
     private final ShortLinkStatsMessageProducer shortLinkStatsMessageProducer;
@@ -118,6 +121,9 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         if (StrUtil.isBlank(requestParam.getGid())) {
             throw new ClientException("分组标识不能为空");
         }
+        // gid 是调用方传进来的，不能直接相信：不校验归属的话，
+        // 任何登录用户都能把链接建到别人的分组里（列表归对方所有，统计数据也记到对方名下）
+        checkGroupBelongToUser(requestParam.getGid());
         // 请求 DTO 上没有 Bean Validation（本项目约定必填性由业务代码判定），
         // 不拦的话空串会建出一条跳转不到的垃圾短链接
         if (StrUtil.isBlank(requestParam.getOriginUrl())) {
@@ -590,6 +596,9 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         if (!describes.isEmpty() && describes.size() != originUrls.size()) {
             throw new ClientException("描述数量与原始链接数量不一致");
         }
+        // 批量里每一条用的都是同一个 gid，在循环前校验一次即可：
+        // 既避免每条都报同一个错误，也避免 N 次重复查询
+        checkGroupBelongToUser(requestParam.getGid());
         List<ShortLinkBaseInfoRespDTO> baseLinkInfos = new ArrayList<>(originUrls.size());
         List<ShortLinkBatchCreateFailureRespDTO> failures = new ArrayList<>();
         for (int i = 0; i < originUrls.size(); i++) {
@@ -677,6 +686,33 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             result = result.substring(0, result.length() - 1);
         }
         return result;
+    }
+
+    /**
+     * 校验分组是否属于当前登录用户
+     * <p>
+     * 调用方（后管）把 gid 放在请求体里，中台只信任请求头里由后管透传的用户名。
+     * 查询条件是 gid + username，命中分片键，只会路由到一张物理表。
+     *
+     * @param gid 分组标识
+     * @throws ClientException 分组标识为空、用户未登录或分组不属于当前用户
+     */
+    private void checkGroupBelongToUser(String gid) {
+        if (StrUtil.isBlank(gid)) {
+            throw new ClientException("分组标识不能为空");
+        }
+        String username = UserContext.getUsername();
+        if (StrUtil.isBlank(username)) {
+            // 中台只被后管调用；拿不到用户名说明请求没带 username 请求头，属于调用方用错接口
+            throw new ClientException("用户未登录");
+        }
+        Long groupCount = linkGroupMapper.selectCount(Wrappers.lambdaQuery(GroupDO.class)
+                .eq(GroupDO::getGid, gid)
+                .eq(GroupDO::getUsername, username)
+                .eq(GroupDO::getDelFlag, 0));
+        if (groupCount == null || groupCount == 0) {
+            throw new ClientException("分组不存在或不属于当前用户");
+        }
     }
 
     /**

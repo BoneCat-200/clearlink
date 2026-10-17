@@ -26,7 +26,10 @@ import java.util.Optional;
 // 显式命名：聚合部署时 admin 与 project 的同名类会同时被扫描，默认 Bean 名会冲突
 @Component("globalExceptionHandlerByAdmin")
 @Slf4j  // 日志
-@RestControllerAdvice   // 声明全局异常处理器
+// basePackages 限定只处理 admin 自己的 Controller：
+// 聚合部署时两个模块各有一个 advice，不限定的话 project 抛出的 ClientException
+// 会因为异常类型不匹配落到 admin 的 Throwable 兜底，错误码被吞成 B000001
+@RestControllerAdvice(basePackages = "com.gugucat.shortlink.admin")
 public class GlobalExceptionHandler {
 
     /**

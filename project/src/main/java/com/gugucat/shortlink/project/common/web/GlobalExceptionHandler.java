@@ -24,7 +24,10 @@ import java.util.Optional;
  */
 @Component
 @Slf4j  // 日志
-@RestControllerAdvice   // 声明全局异常处理器
+// basePackages 限定只处理 project 自己的 Controller：
+// 聚合部署时 admin 也有一个同名 advice，不限定的话两个 advice 会互相抢异常，
+// project 的 ClientException 可能被 admin 的 Throwable 兜底处理成 B000001
+@RestControllerAdvice(basePackages = "com.gugucat.shortlink.project")
 public class GlobalExceptionHandler {
 
     /**
