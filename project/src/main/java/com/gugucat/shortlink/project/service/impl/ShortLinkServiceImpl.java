@@ -13,14 +13,17 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.project.common.constant.RedisKeyConstant;
 import com.gugucat.shortlink.project.common.constant.ShortLinkConstant;
+import com.gugucat.shortlink.project.common.biz.user.UserContext;
 import com.gugucat.shortlink.project.common.convention.exception.AbstractException;
 import com.gugucat.shortlink.project.common.convention.exception.ClientException;
 import com.gugucat.shortlink.project.common.convention.exception.ServiceException;
 import com.gugucat.shortlink.project.common.enums.ValidDateTypeEnum;
 import com.gugucat.shortlink.project.config.CreateDomainConfiguration;
 import com.gugucat.shortlink.project.config.GotoDomainWhiteListConfiguration;
+import com.gugucat.shortlink.project.dao.entity.LinkChangeLogDO;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkDO;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkGotoDO;
+import com.gugucat.shortlink.project.dao.mapper.LinkChangeLogMapper;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkGotoMapper;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkMapper;
 import com.gugucat.shortlink.project.dto.biz.ShortLinkStatsRecordDTO;
@@ -80,6 +83,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
 
     private final RBloomFilter<String> shortUriCreateCachePenetrationBloomFilter;
     private final ShortLinkGotoMapper shortLinkGotoMapper;
+    private final LinkChangeLogMapper linkChangeLogMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
     private final ShortLinkStatsSaveProducer shortLinkStatsSaveProducer;
@@ -275,6 +279,17 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 shortLinkGotoMapper.delete(linkGotoQueryWrapper);
                 shortLinkGotoDO.setGid(requestParam.getGid());
                 shortLinkGotoMapper.insert(shortLinkGotoDO);
+
+                // 记一笔变更历史。旧行虽然置了 del_flag=1 并保留旧 gid，但它落在
+                // **旧分组**的分片表里 —— 按新 gid 查询时根本看不到那张物理表，
+                // 所以「这条短链接曾经在哪个分组」只能靠这张表回答。
+                // 写在写锁内、与换组同事务：换组失败就不该留下一条「变更成功」的记录
+                linkChangeLogMapper.insert(LinkChangeLogDO.builder()
+                        .fullShortUrl(requestParam.getFullShortUrl())
+                        .originGid(hasShortLinkDO.getGid())
+                        .currentGid(requestParam.getGid())
+                        .operator(UserContext.getUsername())
+                        .build());
             } finally {
                 rLock.unlock();
             }
