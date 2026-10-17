@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.gugucat.shortlink.project.dao.mapper.SegmentMapper">
+
+    <!--
+        号段分配的唯一正确性来源。
+        UPDATE 会锁住这一行直到事务提交；并发的另一个实例必须等它提交后
+        才能执行自己的 UPDATE，因此两边拿到的 max_id 一定不同、号段不会重叠。
+        调用方必须在同一个事务里紧接着 SELECT，才能读到本次 UPDATE 后的值。
+    -->
+    <update id="updateMaxId">
+        UPDATE t_segment
+        SET max_id = max_id + step
+        WHERE biz_tag = #{bizTag}
+    </update>
+
+</mapper>

@@ -35,9 +35,9 @@ import com.gugucat.shortlink.project.dto.resp.ShortLinkBatchCreateFailureRespDTO
 import com.gugucat.shortlink.project.dto.resp.ShortLinkBatchCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
+import com.gugucat.shortlink.project.generator.ShortCodeGenerator;
 import com.gugucat.shortlink.project.mq.ShortLinkStatsMessageProducer;
 import com.gugucat.shortlink.project.service.ShortLinkService;
-import com.gugucat.shortlink.project.toolkit.HashUtil;
 import com.gugucat.shortlink.project.toolkit.LinkUtil;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
@@ -86,6 +86,8 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
     private final ShortLinkStatsMessageProducer shortLinkStatsMessageProducer;
     private final GotoDomainWhiteListConfiguration gotoDomainWhiteListConfiguration;
     private final CreateDomainConfiguration createDomainConfiguration;
+    // 短码生成算法通过接口注入：默认号段发号器，可通过配置切回旧的哈希实现
+    private final ShortCodeGenerator shortCodeGenerator;
 
     @Value("${short-link.domain.default}")
     private String createShortLinkDefaultDomain;
@@ -121,7 +123,9 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         verificationWhitelist(requestParam.getOriginUrl());
         // 域名：请求里指定了就用它（必须在白名单内），否则回退默认域名
         String domain = resolveDomain(requestParam.getDomain());
-        String shortLinkSuffix = generateSuffix(requestParam, domain);
+        // 生成算法由 ShortCodeGenerator 的实现决定：
+        // segment = 号段发号器 + Base62 + 仿射混淆；hash = 旧的随机哈希（回滚开关）
+        String shortLinkSuffix = shortCodeGenerator.nextCode(domain, requestParam.getOriginUrl());
         String fullShortUrl = domain + "/" + shortLinkSuffix;
         ShortLinkDO shortLinkDO = ShortLinkDO.builder()
                 .domain(domain)
@@ -150,12 +154,14 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             baseMapper.insert(shortLinkDO);
             shortLinkGotoMapper.insert(linkGotoDO);
         } catch (DuplicateKeyException ex) {
-            // 布隆过滤器判重只保证「大概率不存在」，真正的唯一性由 t_link 的
-            // 唯一索引 (full_short_url, del_time) 兜底；这里撞了说明布隆漏了，补进去再抛错
+            // 号段发号器本身不会发出重复 ID，理论上不会走到这里。
+            // 唯一的可能是新短码与遗留的哈希短码撞了（概率极低），或数据被人工改动过。
+            // 唯一索引 (full_short_url, del_time) 是最后一道防线；这里不重试 ——
+            // 在同一事务里捕获后再插一次，可能把前一条已插入的行一起提交，造成脏数据。
             if (!shortUriCreateCachePenetrationBloomFilter.contains(fullShortUrl)) {
                 shortUriCreateCachePenetrationBloomFilter.add(fullShortUrl);
             }
-            throw new ServiceException(String.format("短链接：%s 生成重复", fullShortUrl));
+            throw new ServiceException(String.format("短链接：%s 生成重复，请重试", fullShortUrl));
         }
         // 缓存预热：创建时就把跳转映射写进 Redis，避免短链接刚发出就被访问时的一次缓存穿透。
         // 有效期已经过去的短链接不写缓存 —— getLinkCacheValidTime 会返回非正数，Redis 不接受非正的过期时间
@@ -658,37 +664,6 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             result = result.substring(0, result.length() - 1);
         }
         return result;
-    }
-
-    /**
-     * 短链接后缀生成
-     *
-     * @param requestParam 创建短链接请求参数
-     * @param domain       本次建链使用的域名，用于布隆过滤器判重
-     * @return 短链接后缀
-     */
-    private String generateSuffix(ShortLinkCreateReqDTO requestParam, String domain) {
-        int customGenerateCount = 0; // 短链接生成失败次数
-        String shortUri;
-        while (true) {
-            if (customGenerateCount > 10) {
-                throw new ServiceException("短链接频繁生成，请稍后再试");
-            }
-            String originUrl = requestParam.getOriginUrl();
-            originUrl += UUID.randomUUID().toString(); // 原始url拼上随机UUID，保证同一原始链接每次生成的短码也不相同
-            shortUri = HashUtil.hashToBase62(originUrl);
-            // 用布隆过滤器判重而不是查库：判「不存在」是准确的，判「存在」可能是误判，
-            // 误判只会让本次多循环一轮，代价远小于每次都打一次数据库。
-            // 判重键必须与数据库唯一索引、跳转时的缓存 key 完全一致，都用「实际域名」：
-            // 固定拼默认域名的话，A 域名下的判定会被用到 B 域名上 ——
-            // 要么把合法的短码误判成重复（白转 10 轮后报「频繁生成」），
-            // 要么漏判后撞到数据库唯一索引（错误码退化成服务端错误）
-            if (!shortUriCreateCachePenetrationBloomFilter.contains(domain + "/" + shortUri)) {
-                break;
-            }
-            customGenerateCount++;
-        }
-        return shortUri;
     }
 
     /**

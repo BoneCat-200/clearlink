@@ -24,6 +24,20 @@ mybatis-plus:
   mapper-locations: classpath:mapper/*.xml
 
 short-link:
+  code:
+    # 短码生成实现：
+    #   segment（默认）：号段发号器 + Base62 + 仿射混淆
+    #   hash：旧的 MurmurHash + 布隆判重，作为回滚开关保留
+    generator: segment
+    # t_segment 中的业务标识
+    biz-tag: short-link:uri
+    # 当前号段剩余低于该比例时，异步预取下一段
+    prefetch-ratio: 0.1
+    obfuscator:
+      # 仿射变换参数。A 必须与 62 互质（奇数且不是 31 的倍数）。
+      # 上线后不能修改：改参数会让已发出的短码解码到错误的 ID
+      a: 1000003
+      b: 987654321
   mq:
     # 统计消息的中间件实现：
     #   redis-stream（默认）：零外部依赖，本地开发直接可用
