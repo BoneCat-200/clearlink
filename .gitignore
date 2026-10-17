@@ -41,6 +41,11 @@ build/
 deploy/nginx/logs/
 deploy/nginx/temp/
 
+### 本地 RocketMQ 运行产物（消息存储、日志） ###
+deploy/rocketmq/store/
+deploy/rocketmq/logs/
+deploy/rocketmq/*.out
+
 ### 本地的开发文档与讲解（只做阅读用，不进仓库） ###
 # 这三份是开发过程中的工作文档：开发计划、admin/project 两个模块的开发记录。
 # 保留在磁盘上供查阅，但不纳入版本管理 —— 它们的内容随每次开发变动，

@@ -98,6 +98,7 @@ Clearlink 是一个短链接系统，提供三项能力：由原始链接生成�
 | MySQL | `127.0.0.1:3306`，账号 `root`，密码 `123456`，数据库名 `link` |
 | Redis | `127.0.0.1:6379`，密码 `123456` |
 | Nacos | 2.x，`127.0.0.1:8848`，单机模式运行 |
+| RocketMQ | 4.9.5，NameServer `127.0.0.1:9876`、Broker `127.0.0.1:10911`；统计消息默认走它，启动方式见 [deploy/rocketmq/README.md](deploy/rocketmq/README.md) |
 
 两点说明：
 

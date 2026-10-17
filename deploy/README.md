@@ -45,7 +45,10 @@ mysql -h127.0.0.1 -uroot -p123456 < deploy/sql/t_segment.sql
 
 ## 三、启动
 
-启动顺序：Nacos → MySQL/Redis（本机已默认启动）→ 数据库初始化 → 聚合服务 → 网关。
+启动顺序：Nacos → MySQL/Redis（本机已默认启动）→ 数据库初始化 → RocketMQ（NameServer + Broker）→ 聚合服务 → 网关。
+
+统计消息默认走 RocketMQ，Broker 启动方式见 [rocketmq/README.md](rocketmq/README.md)。
+临时回滚到 Redis Stream（零外部依赖）时，启动参数加 `--short-link.mq.type=redis-stream`。
 
 ```bash
 # 聚合服务（线上 profile：域名 + 感知反向代理转发头）
