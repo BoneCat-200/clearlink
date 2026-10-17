@@ -1,0 +1,24 @@
+spring:
+  cloud:
+    gateway:
+      routes:
+        # 聚合模式下 admin 与 project 在同一个 JVM 里，
+        # 两条路由都指向同一个服务实例，由路径区分归属
+        - id: clearlink-aggregation-admin
+          uri: lb://clearlink-aggregation
+          order: -1
+          predicates:
+            - Path=/api/clearlink/admin/**
+          filters:
+            - name: TokenValidate
+              args:
+                whitePathList:
+                  - /api/clearlink/admin/v0.1/user/login
+                  - /api/clearlink/admin/v0.1/user/has-username
+
+        - id: clearlink-aggregation-project
+          uri: lb://clearlink-aggregation
+          predicates:
+            - Path=/api/clearlink/**
+          filters:
+            - name: TokenValidate

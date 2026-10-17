@@ -1,2 +1,20 @@
 server:
   port: 8000
+
+spring:
+  application:
+    name: clearlink-gateway
+  profiles:
+    # dev：路由到独立的 admin / project 服务（微服务模式）
+    # aggregation：路由到单体的聚合服务（线上部署模式）
+    active: dev
+  data:
+    redis:
+      # 与 admin 登录时写入的 Redis 是同一个库，网关据此校验 token
+      host: 127.0.0.1
+      port: 6379
+      password: 123456
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848

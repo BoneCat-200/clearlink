@@ -1,0 +1,26 @@
+spring:
+  cloud:
+    gateway:
+      routes:
+        # 管理端路由必须排在项目路由前面：/api/clearlink/admin/** 同时满足
+        # /api/clearlink/** 的断言，order 更小的先匹配
+        - id: clearlink-admin
+          uri: lb://clearlink-admin
+          order: -1
+          predicates:
+            - Path=/api/clearlink/admin/**
+          filters:
+            - name: TokenValidate
+              args:
+                whitePathList:
+                  - /api/clearlink/admin/v0.1/user/login
+                  - /api/clearlink/admin/v0.1/user/has-username
+
+        # 短链接中台接口。跳转路径 /{short-uri} 不经过网关，
+        # 由用户直接访问中台（线上则由 Nginx 按路径分流）
+        - id: clearlink-project
+          uri: lb://clearlink-project
+          predicates:
+            - Path=/api/clearlink/**
+          filters:
+            - name: TokenValidate
