@@ -31,9 +31,21 @@ mvn -f pom.xml -pl aggregation,gateway -am clean package -DskipTests
 - `aggregation/target/clearlink-aggregation.jar`
 - `gateway/target/clearlink-gateway.jar`
 
+## 二点五、数据库初始化
+
+首次部署先执行号段表脚本：
+
+```bash
+mysql -h127.0.0.1 -uroot -p123456 < deploy/sql/t_segment.sql
+```
+
+`t_segment` 是号段发号器的元数据，**单表、不参与分片**，重复执行不会覆盖已有进度。
+建链默认使用号段发号器；如需临时回滚到旧的哈希实现，启动时加
+`--short-link.code.generator=hash`。
+
 ## 三、启动
 
-启动顺序：Nacos → MySQL/Redis（本机已默认启动）→ 聚合服务 → 网关。
+启动顺序：Nacos → MySQL/Redis（本机已默认启动）→ 数据库初始化 → 聚合服务 → 网关。
 
 ```bash
 # 聚合服务（线上 profile：域名 + 感知反向代理转发头）

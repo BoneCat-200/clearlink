@@ -34,7 +34,7 @@ Clearlink 是一个短链接系统，提供三项能力：由原始链接生成�
 
 ### 短链接管理
 
-- 创建短链接：校验目标域名白名单、生成唯一短码、写入短链表与跳转表、预热 Redis 跳转缓存。
+- 创建短链接：校验目标域名白名单，用号段发号器 + Base62 + 仿射混淆生成定长 6 位短码，写入短链表与跳转表，预热 Redis 跳转缓存。
 - 分页查询：按分组查询，可按今日或累计的 PV、UV、UIP 排序。
 - 修改短链接：支持跨分组迁移。
 - 短链接跳转：以 HTTP 302 重定向至原始链接，并上报一次访问统计。
@@ -102,7 +102,7 @@ Clearlink 是一个短链接系统，提供三项能力：由原始链接生成�
 两点说明：
 
 - Nacos 为必需依赖。管理端与中台均需注册到 Nacos，服务名分别为 `clearlink-admin` 与 `clearlink-project`；Nacos 未启动时两个服务都无法启动。
-- 仓库不包含数据库建表脚本。启动前需保证 `link` 数据库已存在，且分片表（`t_user_0` 至 `t_user_15`、`t_group_0` 至 `t_group_15`、`t_link_0` 至 `t_link_15`、`t_link_goto_0` 至 `t_link_goto_15`）与各统计表已创建。
+- 仓库只提供号段表脚本 `deploy/sql/t_segment.sql`。启动前需保证 `link` 数据库已存在，且分片表（`t_user_0` 至 `t_user_15`、`t_group_0` 至 `t_group_15`、`t_link_0` 至 `t_link_15`、`t_link_goto_0` 至 `t_link_goto_15`）与各统计表已创建；建链还依赖 `t_segment` 中的 `short-link:uri` 种子行。
 
 ### 编译
 
