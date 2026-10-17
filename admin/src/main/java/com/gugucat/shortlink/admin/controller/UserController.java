@@ -1,5 +1,6 @@
 package com.gugucat.shortlink.admin.controller;
 
+import com.gugucat.shortlink.admin.common.biz.audit.OperationLog;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.common.convention.result.Results;
 import com.gugucat.shortlink.admin.dto.req.UserLoginReqDTO;
@@ -40,6 +41,7 @@ public class UserController {
     /**
      * 用户注册
      */
+    @OperationLog(module = "用户", action = "注册")
     @PostMapping("/api/clearlink/admin/v0.1/user")
     public Result register(@RequestBody UserRegisterReqDTO requestParam) {
         userService.register(requestParam);
@@ -49,6 +51,7 @@ public class UserController {
     /**
      * 根据用户名修改（覆写）用户信息
      */
+    @OperationLog(module = "用户", action = "修改")
     @PutMapping("/api/clearlink/admin/v0.1/user")
     public Result updateUser(@RequestBody UserUpdateReqDTO requestParam) {
         userService.updateUser(requestParam);
@@ -58,6 +61,7 @@ public class UserController {
     /**
      * 用户登录
      */
+    @OperationLog(module = "用户", action = "登录")
     @PostMapping("/api/clearlink/admin/v0.1/user/login")
     public Result<UserLoginRespDTO> login(@RequestBody UserLoginReqDTO requestParam) {
         return Results.success(userService.login(requestParam));
@@ -75,6 +79,7 @@ public class UserController {
     /**
      * 用户登出
      */
+    @OperationLog(module = "用户", action = "登出")
     @DeleteMapping("/api/clearlink/admin/v0.1/user/logout")
     public Result logout(@RequestParam("username") String username, @RequestParam("token") String token) {
         userService.logout(username, token);

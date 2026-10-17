@@ -37,6 +37,7 @@ mvn -f pom.xml -pl aggregation,gateway -am clean package -DskipTests
 
 ```bash
 mysql -h127.0.0.1 -uroot -p123456 < deploy/sql/t_segment.sql
+mysql -h127.0.0.1 -uroot -p123456 < deploy/sql/t_operation_log.sql
 ```
 
 `t_segment` 是号段发号器的元数据，**单表、不参与分片**，重复执行不会覆盖已有进度。

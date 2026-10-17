@@ -1,5 +1,6 @@
 package com.gugucat.shortlink.admin.controller;
 
+import com.gugucat.shortlink.admin.common.biz.audit.OperationLog;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.common.convention.result.Results;
 import com.gugucat.shortlink.admin.dto.req.GroupSaveReqDTO;
@@ -31,6 +32,7 @@ public class GroupController {
     /**
      * 创建分组
      */
+    @OperationLog(module = "分组", action = "创建")
     @PostMapping("/api/clearlink/admin/v0.1/group")
     public Result saveGroup(@RequestBody GroupSaveReqDTO requestParam) {
         groupService.saveGroup(requestParam.getName());
@@ -50,6 +52,7 @@ public class GroupController {
     /**
      * 修改分组名称
      */
+    @OperationLog(module = "分组", action = "修改")
     @PutMapping("/api/clearlink/admin/v0.1/group")
     public Result updateGroup(@RequestBody GroupUpdateReqDTO requestParam) {
         groupService.updateGroup(requestParam);
@@ -60,6 +63,7 @@ public class GroupController {
     /**
      * 删除分组
      */
+    @OperationLog(module = "分组", action = "删除")
     @DeleteMapping("/api/clearlink/admin/v0.1/group")
     public Result deleteGroup(@RequestParam("gid") String gid) {
         groupService.deleteGroup(gid);
@@ -70,6 +74,7 @@ public class GroupController {
     /**
      * 分组排序
      */
+    @OperationLog(module = "分组", action = "排序")
     @PostMapping("/api/clearlink/admin/v0.1/group/sort")
     public Result sortGroup(@RequestBody List<GroupSortReqDTO> requestParam) {
         groupService.sortGroup(requestParam);
