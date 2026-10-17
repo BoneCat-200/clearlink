@@ -23,4 +23,9 @@ public class GatewayErrorResult {
      * 错误信息
      */
     private String message;
+
+    /**
+     * 请求 ID（traceId），便于按链路排查
+     */
+    private String requestId;
 }

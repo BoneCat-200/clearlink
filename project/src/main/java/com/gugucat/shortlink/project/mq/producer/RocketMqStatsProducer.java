@@ -2,10 +2,13 @@ package com.gugucat.shortlink.project.mq.producer;
 
 import cn.hutool.core.util.StrUtil;
 import com.alibaba.fastjson2.JSON;
+import com.gugucat.shortlink.project.common.biz.trace.TraceContext;
 import com.gugucat.shortlink.project.dto.biz.ShortLinkStatsRecordDTO;
+import com.gugucat.shortlink.project.metrics.LinkMetrics;
 import com.gugucat.shortlink.project.mq.ShortLinkStatsMessageProducer;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
@@ -33,8 +36,11 @@ import java.util.UUID;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 @ConditionalOnProperty(name = "short-link.mq.type", havingValue = "rocketmq")
 public class RocketMqStatsProducer implements ShortLinkStatsMessageProducer {
+
+    private final LinkMetrics linkMetrics;
 
     /**
      * 发送超时，单位毫秒
@@ -130,6 +136,13 @@ public class RocketMqStatsProducer implements ShortLinkStatsMessageProducer {
                     JSON.toJSONString(statsRecord).getBytes(StandardCharsets.UTF_8));
             // keys 同时用于消费端幂等与按事件查询
             message.setKeys(eventId);
+            // 把 traceId 也写到消息属性上：排查问题时可以按链路直接定位消息
+            String traceId = StrUtil.isNotBlank(statsRecord.getTraceId())
+                    ? statsRecord.getTraceId()
+                    : TraceContext.getTraceId();
+            if (StrUtil.isNotBlank(traceId)) {
+                message.putUserProperty("traceId", traceId);
+            }
             String finalEventId = eventId;
             producer.send(message, new SendCallback() {
                 @Override
@@ -139,12 +152,14 @@ public class RocketMqStatsProducer implements ShortLinkStatsMessageProducer {
 
                 @Override
                 public void onException(Throwable ex) {
+                    linkMetrics.recordMqSendFail();
                     log.error("发送统计消息失败，eventId: {}, fullShortUrl: {}",
                             finalEventId, statsRecord.getFullShortUrl(), ex);
                 }
             });
         } catch (Throwable ex) {
             // 提交阶段的同步异常（生产者启动失败、消息体非法等）
+            linkMetrics.recordMqSendFail();
             log.error("提交统计消息失败，eventId: {}, fullShortUrl: {}",
                     statsRecord.getEventId(), statsRecord.getFullShortUrl(), ex);
         }

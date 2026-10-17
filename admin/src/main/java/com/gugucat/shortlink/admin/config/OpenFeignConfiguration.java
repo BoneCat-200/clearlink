@@ -1,5 +1,6 @@
 package com.gugucat.shortlink.admin.config;
 
+import com.gugucat.shortlink.admin.common.biz.trace.TraceContext;
 import com.gugucat.shortlink.admin.common.biz.user.UserContext;
 import feign.RequestInterceptor;
 import org.springframework.context.annotation.Bean;
@@ -31,6 +32,8 @@ public class OpenFeignConfiguration {
             template.header("username", UserContext.getUsername());
             template.header("userId", UserContext.getUserId());
             template.header("realName", UserContext.getRealName());
+            // 服务间调用也要把 traceId 带过去，否则中台日志会断成两条链路
+            template.header(TraceContext.TRACE_ID_HEADER, TraceContext.getTraceId());
         };
     }
 }

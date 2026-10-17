@@ -12,6 +12,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.project.common.constant.RedisKeyConstant;
 import com.gugucat.shortlink.project.common.constant.ShortLinkConstant;
+import com.gugucat.shortlink.project.common.biz.trace.TraceContext;
 import com.gugucat.shortlink.project.common.biz.user.UserContext;
 import com.gugucat.shortlink.project.common.convention.exception.AbstractException;
 import com.gugucat.shortlink.project.common.convention.exception.ClientException;
@@ -36,6 +37,7 @@ import com.gugucat.shortlink.project.dto.resp.ShortLinkBatchCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
 import com.gugucat.shortlink.project.generator.ShortCodeGenerator;
+import com.gugucat.shortlink.project.metrics.LinkMetrics;
 import com.gugucat.shortlink.project.mq.ShortLinkStatsMessageProducer;
 import com.gugucat.shortlink.project.service.ShortLinkService;
 import com.gugucat.shortlink.project.toolkit.LinkUtil;
@@ -88,6 +90,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
     private final CreateDomainConfiguration createDomainConfiguration;
     // 短码生成算法通过接口注入：默认号段发号器，可通过配置切回旧的哈希实现
     private final ShortCodeGenerator shortCodeGenerator;
+    private final LinkMetrics linkMetrics;
 
     @Value("${short-link.domain.default}")
     private String createShortLinkDefaultDomain;
@@ -175,6 +178,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             );
         }
         shortUriCreateCachePenetrationBloomFilter.add(fullShortUrl);
+        linkMetrics.recordCreate();
         return ShortLinkCreateRespDTO.builder()
                 .fullShortUrl("http://" + shortLinkDO.getFullShortUrl())
                 .originUrl(requestParam.getOriginUrl())
@@ -322,15 +326,19 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 .map(each -> ":" + each)
                 .orElse("");
         String fullShortUrl = serverName + serverPort + "/" + shortUri;
+        linkMetrics.recordRedirectRequest();
         String gotoShortLinkKey = String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, fullShortUrl);
         String gotoIsNullShortLinkKey = String.format(RedisKeyConstant.GOTO_IS_NULL_SHORT_LINK_KEY, fullShortUrl);
         // 第一条路径：缓存命中，直接重定向，一次数据库都不碰
         String originalLink = stringRedisTemplate.opsForValue().get(gotoShortLinkKey);
         if (StrUtil.isNotBlank(originalLink)) {
+            linkMetrics.recordCacheHit();
             recordStatsQuietly(fullShortUrl, request, response);
             ((HttpServletResponse) response).sendRedirect(originalLink);
             return;
         }
+        // 第一次查缓存没命中；后续的双重检查命中属于并发竞态，不计入命中率
+        linkMetrics.recordCacheMiss();
         // 防缓存穿透第一道：布隆过滤器说「一定不存在」时就不用查库了。
         // 攻击者拿随机短码刷接口时，请求会全部停在这里，数据库不受影响
         if (!shortUriCreateCachePenetrationBloomFilter.contains(fullShortUrl)) {
@@ -446,6 +454,8 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 .fullShortUrl(fullShortUrl)
                 // 一次跳转一个事件 ID：RocketMQ 生产者用它做消息 Key，消费端用它做幂等键
                 .eventId(UUID.fastUUID().toString())
+                // 跳转请求的 traceId 跟着消息走，消费端的统计日志才能和跳转日志串起来
+                .traceId(TraceContext.getTraceId())
                 .uv(uv.get())
                 .uvFirstFlag(uvFirstFlag.get())
                 .uipFirstFlag(uipFirstFlag)
@@ -504,6 +514,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
      */
     @SneakyThrows   // sendRedirect 声明了受检的 IOException
     private void noFound(ServletResponse response) {
+        linkMetrics.recordNotFound();
         ((HttpServletResponse) response).sendRedirect("/page/notfound");
     }
 

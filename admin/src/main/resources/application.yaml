@@ -1,9 +1,13 @@
 server:
   port: 8002
+  # 停机时先停止接收新请求，再等待在途请求完成
+  shutdown: graceful
 
 spring:
   application:
     name: clearlink-admin
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   datasource:
     # ShardingSphere 对 Driver 自定义，实现分库分表等隐藏逻辑
     driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
@@ -32,3 +36,22 @@ short-link:
     time-window: 1
     # 时间窗口内允许的最大访问次数
     max-access-count: 20
+
+logging:
+  pattern:
+    # traceId 由 TraceIdFilter 写入 MDC；没有请求上下文时显示为空
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] [%thread] %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 只暴露必要端点；include: '*' 会把 env、beans 等敏感信息一起公开
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}

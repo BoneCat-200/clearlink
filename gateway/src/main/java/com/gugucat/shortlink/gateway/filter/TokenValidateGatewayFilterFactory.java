@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.gugucat.shortlink.gateway.config.TokenValidateFilterConfig;
 import com.gugucat.shortlink.gateway.dto.GatewayErrorResult;
+import com.gugucat.shortlink.gateway.util.TraceIdUtils;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
 import org.springframework.core.io.buffer.DataBufferFactory;
@@ -62,12 +63,13 @@ public class TokenValidateGatewayFilterFactory extends AbstractGatewayFilterFact
             }
             String username = request.getHeaders().getFirst("username");
             String token = request.getHeaders().getFirst("token");
+            String traceId = request.getHeaders().getFirst(TraceIdUtils.TRACE_ID_HEADER);
             if (!StringUtils.hasText(username) || !StringUtils.hasText(token)) {
-                return unauthorized(exchange.getResponse(), "请先登录");
+                return unauthorized(exchange.getResponse(), "请先登录", traceId);
             }
             Object userInfoJsonStr = stringRedisTemplate.opsForHash().get(USER_LOGIN_KEY + username, token);
             if (userInfoJsonStr == null) {
-                return unauthorized(exchange.getResponse(), "登录已过期，请重新登录");
+                return unauthorized(exchange.getResponse(), "登录已过期，请重新登录", traceId);
             }
             JSONObject userInfo = JSON.parseObject(userInfoJsonStr.toString());
             // 下游用的是 username/userId/realName 三个头：
@@ -109,9 +111,10 @@ public class TokenValidateGatewayFilterFactory extends AbstractGatewayFilterFact
      *
      * @param response 响应
      * @param message  错误信息
+     * @param traceId  请求 ID
      * @return 写出响应的 Mono
      */
-    private Mono<Void> unauthorized(ServerHttpResponse response, String message) {
+    private Mono<Void> unauthorized(ServerHttpResponse response, String message, String traceId) {
         response.setStatusCode(HttpStatus.UNAUTHORIZED);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
         return response.writeWith(Mono.fromSupplier(() -> {
@@ -119,6 +122,7 @@ public class TokenValidateGatewayFilterFactory extends AbstractGatewayFilterFact
             GatewayErrorResult result = GatewayErrorResult.builder()
                     .status(HttpStatus.UNAUTHORIZED.value())
                     .message(message)
+                    .requestId(traceId)
                     .build();
             return bufferFactory.wrap(JSON.toJSONString(result).getBytes(StandardCharsets.UTF_8));
         }));

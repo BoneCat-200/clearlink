@@ -1,9 +1,12 @@
 server:
   port: 8000
+  shutdown: graceful
 
 spring:
   application:
     name: clearlink-gateway
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   profiles:
     # dev：路由到独立的 admin / project 服务（微服务模式）
     # aggregation：路由到单体的聚合服务（线上部署模式）
@@ -18,3 +21,21 @@ spring:
     nacos:
       discovery:
         server-addr: 127.0.0.1:8848
+
+logging:
+  pattern:
+    # 网关是 WebFlux，不建立 MDC；下游服务会补上 traceId
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] [%thread] %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}

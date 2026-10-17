@@ -1,5 +1,6 @@
 package com.gugucat.shortlink.project.common.convention.result;
 
+import com.gugucat.shortlink.project.common.biz.trace.TraceContext;
 import com.gugucat.shortlink.project.common.convention.errorcode.BaseErrorCode;
 import com.gugucat.shortlink.project.common.convention.exception.AbstractException;
 
@@ -7,6 +8,9 @@ import java.util.Optional;
 
 /**
  * 全局返回对象的构造器
+ * <p>
+ * 统一把当前请求的 traceId 填进 {@code requestId}：
+ * 调用方拿到响应后可以直接用这个值去日志里检索整条链路。
  */
 public final class Results {
 
@@ -15,7 +19,8 @@ public final class Results {
      */
     public static Result<Void> success() {
         return new Result<Void>()
-                .setCode(Result.SUCCESS_CODE);
+                .setCode(Result.SUCCESS_CODE)
+                .setRequestId(TraceContext.getTraceId());
     }
 
     /**
@@ -24,7 +29,8 @@ public final class Results {
     public static <T> Result<T> success(T data) {
         return new Result<T>()
                 .setCode(Result.SUCCESS_CODE)
-                .setData(data);
+                .setData(data)
+                .setRequestId(TraceContext.getTraceId());
     }
 
     /**
@@ -33,7 +39,8 @@ public final class Results {
     public static Result<Void> failure() {
         return new Result<Void>()
                 .setCode(BaseErrorCode.SERVICE_ERROR.code())
-                .setMessage(BaseErrorCode.SERVICE_ERROR.message());
+                .setMessage(BaseErrorCode.SERVICE_ERROR.message())
+                .setRequestId(TraceContext.getTraceId());
     }
 
     /**
@@ -46,7 +53,8 @@ public final class Results {
                 .orElse(BaseErrorCode.SERVICE_ERROR.message());
         return new Result<Void>()
                 .setCode(errorCode)
-                .setMessage(errorMessage);
+                .setMessage(errorMessage)
+                .setRequestId(TraceContext.getTraceId());
     }
 
     /**
@@ -55,6 +63,7 @@ public final class Results {
     public static Result<Void> failure(String errorCode, String errorMessage) {
         return new Result<Void>()
                 .setCode(errorCode)
-                .setMessage(errorMessage);
+                .setMessage(errorMessage)
+                .setRequestId(TraceContext.getTraceId());
     }
 }

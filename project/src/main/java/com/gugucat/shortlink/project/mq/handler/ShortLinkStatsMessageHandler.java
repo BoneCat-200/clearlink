@@ -16,6 +16,7 @@ import com.gugucat.shortlink.project.dao.entity.LinkLocaleStatsDO;
 import com.gugucat.shortlink.project.dao.entity.LinkNetworkStatsDO;
 import com.gugucat.shortlink.project.dao.entity.LinkOsStatsDO;
 import com.gugucat.shortlink.project.dao.entity.LinkStatsTodayDO;
+import com.gugucat.shortlink.project.common.biz.trace.TraceContext;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkGotoDO;
 import com.gugucat.shortlink.project.dao.mapper.LinkAccessLogsMapper;
 import com.gugucat.shortlink.project.dao.mapper.LinkAccessStatsMapper;
@@ -121,8 +122,15 @@ public class ShortLinkStatsMessageHandler {
             log.warn("消息仍在处理中或上一轮未正常结束，暂不重复处理。messageId: {}", messageId);
             return HandleResult.IN_PROGRESS;
         }
+        String traceId = null;
         try {
             ShortLinkStatsRecordDTO statsRecord = JSON.parseObject(statsRecordJson, ShortLinkStatsRecordDTO.class);
+            traceId = statsRecord.getTraceId();
+            if (StrUtil.isNotBlank(traceId)) {
+                // 消费线程与跳转线程不是同一个，必须从消息体里恢复 MDC，
+                // 否则统计落库的日志无法和这一次跳转关联起来
+                TraceContext.setTraceId(traceId);
+            }
             actualSaveShortLinkStats(statsRecord);
         } catch (Throwable ex) {
             // 删掉幂等标识，让这条消息能被重新处理；
@@ -130,6 +138,10 @@ public class ShortLinkStatsMessageHandler {
             messageQueueIdempotentHandler.delMessageProcessed(messageId);
             log.error("记录短链接监控消费异常，messageId: {}", messageId, ex);
             return HandleResult.FAILED;
+        } finally {
+            if (StrUtil.isNotBlank(traceId)) {
+                TraceContext.clear();
+            }
         }
         messageQueueIdempotentHandler.setAccomplish(messageId);
         return HandleResult.SUCCESS;

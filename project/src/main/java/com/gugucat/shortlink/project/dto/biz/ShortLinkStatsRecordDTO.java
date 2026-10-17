@@ -33,6 +33,13 @@ public class ShortLinkStatsRecordDTO {
     private String eventId;
 
     /**
+     * 链路追踪 ID
+     * <p>
+     * 跳转请求的 traceId。消费端拿到后放进 MDC，统计落库的日志就能和跳转日志串起来。
+     */
+    private String traceId;
+
+    /**
      * 访问用户IP
      */
     private String remoteAddr;

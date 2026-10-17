@@ -1,9 +1,13 @@
 server:
   port: 8001
+  # 停机时先停止接收新请求，再等待在途请求完成
+  shutdown: graceful
 
 spring:
   application:
     name: clearlink-project
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   datasource:
     # ShardingSphere 对 Driver 自定义，实现分库分表等隐藏逻辑
     driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
@@ -78,3 +82,20 @@ short-link:
         - zhihu.com
         - juejin.cn
         - cnblogs.com
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] [%thread] %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}

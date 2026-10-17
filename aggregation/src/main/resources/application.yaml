@@ -1,9 +1,12 @@
 server:
   port: 8003
+  shutdown: graceful
 
 spring:
   application:
     name: clearlink-aggregation
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   datasource:
     # 聚合服务使用独立命名的分片配置，避免命中 admin/project jar 里的同名文件
     driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
@@ -80,12 +83,20 @@ mybatis-plus:
   # 自定义 SQL 在 project 模块的 mapper 目录下，聚合后仍在同一个 classpath 上
   mapper-locations: classpath:mapper/*.xml
 
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] [%thread] %logger{36} - %msg%n"
+
 management:
   endpoints:
     web:
       exposure:
         # 线上只暴露必要端点；include: '*' 会把 env、beans 等敏感信息一并公开
         include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
   metrics:
     tags:
       application: ${spring.application.name}
