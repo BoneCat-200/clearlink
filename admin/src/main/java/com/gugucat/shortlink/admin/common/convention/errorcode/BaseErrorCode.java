@@ -17,7 +17,11 @@ public enum BaseErrorCode implements IErrorCode {
     USER_NAME_SPECIAL_CHARACTER_ERROR("A000113", "用户名包含特殊字符"),
     PASSWORD_VERIFY_ERROR("A000120", "密码校验失败"),
     PASSWORD_SHORT_ERROR("A000121", "密码长度不够"),
+    PASSWORD_POLICY_ERROR("A000122", "密码需为 8-32 位且同时包含字母和数字"),
     PHONE_VERIFY_ERROR("A000151", "手机格式校验失败"),
+
+    // ========== 二级宏观错误码 登录安全 ==========
+    LOGIN_LOCKED_ERROR("A000130", "账号已锁定，请稍后再试"),
 
     // ========== 二级宏观错误码 系统请求缺少幂等Token ==========
     IDEMPOTENT_TOKEN_NULL_ERROR("A000200", "幂等Token为空"),

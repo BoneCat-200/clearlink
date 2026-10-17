@@ -1,6 +1,7 @@
 package com.gugucat.shortlink.admin.controller;
 
 import com.gugucat.shortlink.admin.common.biz.audit.OperationLog;
+import com.gugucat.shortlink.admin.common.biz.idempotent.Idempotent;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.common.convention.result.Results;
 import com.gugucat.shortlink.admin.dto.req.UserLoginReqDTO;
@@ -52,6 +53,7 @@ public class UserController {
      * 根据用户名修改（覆写）用户信息
      */
     @OperationLog(module = "用户", action = "修改")
+    @Idempotent
     @PutMapping("/api/clearlink/admin/v0.1/user")
     public Result updateUser(@RequestBody UserUpdateReqDTO requestParam) {
         userService.updateUser(requestParam);

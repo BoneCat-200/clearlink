@@ -2,6 +2,7 @@ package com.gugucat.shortlink.admin.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gugucat.shortlink.admin.common.biz.audit.OperationLog;
+import com.gugucat.shortlink.admin.common.biz.idempotent.Idempotent;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.remote.ShortLinkActualRemoteService;
 import com.gugucat.shortlink.admin.remote.dto.req.RecycleBinRecoverReqDTO;
@@ -33,6 +34,7 @@ public class RecycleBinController {
      * 将短链接移入回收站
      */
     @OperationLog(module = "回收站", action = "移入")
+    @Idempotent
     @PostMapping("/api/clearlink/admin/v0.1/recycle-bin/save")
     public Result<Void> saveRecycleBin(@RequestBody RecycleBinSaveReqDTO requestParam) {
         return shortLinkActualRemoteService.saveRecycleBin(requestParam);
@@ -50,6 +52,7 @@ public class RecycleBinController {
      * 从回收站恢复短链接
      */
     @OperationLog(module = "回收站", action = "恢复")
+    @Idempotent
     @PostMapping("/api/clearlink/admin/v0.1/recycle-bin/recover")
     public Result<Void> recoverRecycleBin(@RequestBody RecycleBinRecoverReqDTO requestParam) {
         return shortLinkActualRemoteService.recoverRecycleBin(requestParam);
@@ -59,6 +62,7 @@ public class RecycleBinController {
      * 从回收站移除短链接
      */
     @OperationLog(module = "回收站", action = "移除")
+    @Idempotent
     @PostMapping("/api/clearlink/admin/v0.1/recycle-bin/remove")
     public Result<Void> removeRecycleBin(@RequestBody RecycleBinRemoveReqDTO requestParam) {
         return shortLinkActualRemoteService.removeRecycleBin(requestParam);

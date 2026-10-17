@@ -68,6 +68,21 @@ java -jar gateway/target/clearlink-gateway.jar \
 | `SHORT_LINK_DOMAIN` | `clearlink.test` | 短链接使用的公网域名（不带协议、不带末尾斜杠） |
 | `AMAP_KEY` | 空 | 高德逆地理 key；为空时地区维度统一记为「未知」 |
 
+安全相关配置（`admin` 与 `aggregation` 的 `application.yaml` 均已内置）：
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `short-link.login-security.max-fail-count` | `5` | 连续登录失败多少次后锁定 |
+| `short-link.login-security.fail-window-minutes` | `15` | 失败计数的统计窗口 |
+| `short-link.login-security.lock-minutes` | `15` | 锁定时长 |
+| `short-link.login-security.password-min-length/max-length` | `8/32` | 新密码长度范围 |
+| `short-link.idempotent.enabled` | `true` | 写接口一次性 Token 开关 |
+| `short-link.idempotent.token-ttl-minutes` | `10` | Token 有效期 |
+
+> 写接口（建链、批量建链、修改短链、分组增删改、回收站、修改用户）
+> 现在必须携带一次性幂等 Token。临时回滚可加启动参数
+> `--short-link.idempotent.enabled=false`。
+
 `prod` profile 的关键配置见
 `aggregation/src/main/resources/application-prod.yaml`：
 
@@ -115,16 +130,22 @@ curl -s -i http://clearlink.test/api/clearlink/admin/v0.1/group
 curl -s "http://clearlink.test/api/clearlink/admin/v0.1/group" \
   -H 'username: admin' -H 'token: <登录返回的 token>'
 
-# 4. 创建短链接
+# 4. 写接口先取一次性幂等 Token（有效期 10 分钟）
+curl -s http://clearlink.test/api/clearlink/admin/v0.1/idempotent/token \
+  -H 'username: admin' -H 'token: <token>'
+
+# 5. 创建短链接：把上一步的 token 放进 Idempotency-Token 头
+#    同一个 Token 再发一次会返回 A000201，不会重复建链
 curl -s -X POST http://clearlink.test/api/clearlink/admin/v0.1/create \
   -H 'Content-Type: application/json' \
   -H 'username: admin' -H 'token: <token>' \
+  -H 'Idempotency-Token: <幂等 Token>' \
   -d '{"originUrl":"https://www.baidu.com","gid":"<当前用户的分组 gid>"}'
 
-# 5. 访问短链接：期望 302，Location 为原始链接
+# 6. 访问短链接：期望 302，Location 为原始链接
 curl -s -i http://clearlink.test/<短码>
 
-# 6. 运维端点（只暴露 health/info/prometheus）
+# 7. 运维端点（只暴露 health/info/prometheus）
 curl -s http://clearlink.test/actuator/health
 ```
 

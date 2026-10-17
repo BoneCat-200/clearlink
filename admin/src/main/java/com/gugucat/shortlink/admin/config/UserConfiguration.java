@@ -7,6 +7,8 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * 用户配置自动装配
@@ -14,6 +16,17 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 // 显式命名：聚合部署时 project 模块也有一个 UserConfiguration
 @Configuration("userConfigurationByAdmin")
 public class UserConfiguration {
+
+    /**
+     * 密码哈希实现
+     * <p>
+     * 只引 spring-security-crypto，不引 Spring Security 的自动配置，
+     * 所以这里显式声明 Bean，不会给项目带进一套过滤器链。
+     */
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
 
     /**
      * 用户信息传递过滤器

@@ -2,6 +2,7 @@ package com.gugucat.shortlink.admin.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gugucat.shortlink.admin.common.biz.audit.OperationLog;
+import com.gugucat.shortlink.admin.common.biz.idempotent.Idempotent;
 import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.remote.ShortLinkActualRemoteService;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkBatchCreateReqDTO;
@@ -32,6 +33,7 @@ public class ShortLinkController {
      * 创建短链接
      */
     @OperationLog(module = "短链接", action = "创建")
+    @Idempotent
     @PostMapping("/api/clearlink/admin/v0.1/create")
     public Result<ShortLinkCreateRespDTO> createShortLink(@RequestBody ShortLinkCreateReqDTO requestParam) {
         return shortLinkActualRemoteService.createShortLink(requestParam);
@@ -41,6 +43,7 @@ public class ShortLinkController {
      * 批量创建短链接
      */
     @OperationLog(module = "短链接", action = "批量创建")
+    @Idempotent
     @PostMapping("/api/clearlink/admin/v0.1/create/batch")
     public Result<ShortLinkBatchCreateRespDTO> batchCreateShortLink(@RequestBody ShortLinkBatchCreateReqDTO requestParam) {
         return shortLinkActualRemoteService.batchCreateShortLink(requestParam);
@@ -59,6 +62,7 @@ public class ShortLinkController {
      * 修改短链接
      */
     @OperationLog(module = "短链接", action = "修改")
+    @Idempotent
     @PostMapping("/api/clearlink/admin/v0.1/update")
     public Result<Void> updateShortLink(@RequestBody ShortLinkUpdateReqDTO requestParam) {
         return shortLinkActualRemoteService.updateShortLink(requestParam);

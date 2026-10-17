@@ -42,6 +42,21 @@ short-link:
       b: 987654321
   group:
     max-num: 20
+  login-security:
+    # 连续失败达到该次数后锁定账号
+    max-fail-count: 5
+    # 失败计数的统计窗口，单位分钟
+    fail-window-minutes: 15
+    # 锁定时长，单位分钟
+    lock-minutes: 15
+    # 新密码长度下限与上限（只约束注册/修改，历史密码仍可登录）
+    password-min-length: 8
+    password-max-length: 32
+  idempotent:
+    # 写接口一次性 Token 校验。关闭后切面不注册，回滚为无 Token 模式
+    enabled: true
+    # Token 有效期，单位分钟
+    token-ttl-minutes: 10
   flow-limit:
     # 风控过滤器挂载在 /* 上，短链接跳转也会被按 IP 限流；
     # 公网部署时若开启，需要先确认它不会误伤正常的跳转流量
