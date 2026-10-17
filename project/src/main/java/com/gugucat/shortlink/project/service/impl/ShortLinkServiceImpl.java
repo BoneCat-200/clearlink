@@ -5,7 +5,6 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.ArrayUtil;
 import cn.hutool.core.util.StrUtil;
-import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -36,7 +35,7 @@ import com.gugucat.shortlink.project.dto.resp.ShortLinkBatchCreateFailureRespDTO
 import com.gugucat.shortlink.project.dto.resp.ShortLinkBatchCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
-import com.gugucat.shortlink.project.mq.producer.ShortLinkStatsSaveProducer;
+import com.gugucat.shortlink.project.mq.ShortLinkStatsMessageProducer;
 import com.gugucat.shortlink.project.service.ShortLinkService;
 import com.gugucat.shortlink.project.toolkit.HashUtil;
 import com.gugucat.shortlink.project.toolkit.LinkUtil;
@@ -64,9 +63,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -86,7 +83,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
     private final LinkChangeLogMapper linkChangeLogMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final RedissonClient redissonClient;
-    private final ShortLinkStatsSaveProducer shortLinkStatsSaveProducer;
+    private final ShortLinkStatsMessageProducer shortLinkStatsMessageProducer;
     private final GotoDomainWhiteListConfiguration gotoDomainWhiteListConfiguration;
     private final CreateDomainConfiguration createDomainConfiguration;
 
@@ -455,10 +452,10 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
 
     @Override
     public void shortLinkStats(ShortLinkStatsRecordDTO statsRecord) {
-        Map<String, String> producerMap = new HashMap<>();
-        producerMap.put("statsRecord", JSON.toJSONString(statsRecord));
-        // 只投递不落库：跳转是最高频的操作，统计的写库动作交给消费者异步做
-        shortLinkStatsSaveProducer.send(producerMap);
+        // 只投递不落库：跳转是最高频的操作，统计的写库动作交给消费者异步做。
+        // 具体走 Redis Stream 还是 RocketMQ 由 short-link.mq.type 决定，
+        // 这里只依赖接口 —— 换 MQ 不需要改跳转链路
+        shortLinkStatsMessageProducer.send(statsRecord);
     }
 
     /**

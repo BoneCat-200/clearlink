@@ -2,6 +2,7 @@ package com.gugucat.shortlink.project.config;
 
 import com.gugucat.shortlink.project.mq.consumer.ShortLinkStatsSaveConsumer;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
@@ -28,6 +29,7 @@ import static com.gugucat.shortlink.project.common.constant.RedisKeyConstant.SHO
  */
 @Configuration
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "short-link.mq.type", havingValue = "redis-stream", matchIfMissing = true)
 public class RedisStreamConfiguration {
 
     private final RedisConnectionFactory redisConnectionFactory;
@@ -92,10 +94,13 @@ public class RedisStreamConfiguration {
                         // 一条统计消息出了问题，不该让整个统计功能停下来
                         .cancelOnError(throwable -> false)
                         .consumer(Consumer.from(SHORT_LINK_STATS_STREAM_GROUP_KEY, "stats-consumer"))
-                        // 拉取即确认。消息的「处理成功」由幂等处理器单独记录，
-                        // 不依赖 Stream 的 ACK：即使消费途中宕机，重投回来的消息
-                        // 也会被幂等标识识别出来
-                        .autoAcknowledge(true)
+                        // **关闭自动确认**：由消费者在「落库成功」之后手动 ACK。
+                        // 原来开的是 true（拉取即确认），与消费者里「抛异常让消息重投」的
+                        // 意图直接冲突 —— 消息在监听器返回前就被 ACK 了，异常时不会重投，
+                        // 统计消息静默丢失，只剩一行 error 日志。
+                        // 关掉之后，失败的消息留在待确认列表（PEL）里，
+                        // 由 ShortLinkStatsPendingMessageRecoveryTask 定期重投
+                        .autoAcknowledge(false)
                         .build();
         StreamMessageListenerContainer<String, MapRecord<String, String, String>> listenerContainer =
                 StreamMessageListenerContainer.create(redisConnectionFactory, options);

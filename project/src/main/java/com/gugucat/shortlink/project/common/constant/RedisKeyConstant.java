@@ -41,6 +41,14 @@ public class RedisKeyConstant {
     public static final String SHORT_LINK_STATS_STREAM_GROUP_KEY = "clearlink:stats-stream:only-group";
 
     /**
+     * 短链接监控消息死信队列 Key
+     * <p>
+     * 重试次数超限的消息转到这里，保留原始消息体与失败信息，供排查或人工重放。
+     * 不直接丢弃是因为统计丢了就永久丢了。
+     */
+    public static final String SHORT_LINK_STATS_STREAM_DLQ_KEY = "clearlink:stats-stream:dlq";
+
+    /**
      * 短链接统计判断是否新用户缓存标识
      * <p>
      * 用 Set 保存该短链接出现过的 uv，用来判断这次访问是不是这个访客的第一次。

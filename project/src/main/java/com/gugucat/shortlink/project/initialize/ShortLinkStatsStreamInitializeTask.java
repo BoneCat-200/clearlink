@@ -2,6 +2,7 @@ package com.gugucat.shortlink.project.initialize;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -16,6 +17,7 @@ import static com.gugucat.shortlink.project.common.constant.RedisKeyConstant.SHO
  */
 @Component
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "short-link.mq.type", havingValue = "redis-stream", matchIfMissing = true)
 public class ShortLinkStatsStreamInitializeTask implements InitializingBean {
 
     private final StringRedisTemplate stringRedisTemplate;

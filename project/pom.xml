@@ -77,6 +77,14 @@
             <groupId>com.alibaba.fastjson2</groupId>
             <artifactId>fastjson2</artifactId>
         </dependency>
+        <!-- 统计消息的 MQ 可切换实现之一。默认不启用（short-link.mq.type=redis-stream），
+             类上带 @ConditionalOnProperty，只有切到 rocketmq 时才会实例化；
+             运行它需要可用的 NameServer + Broker，本仓库不内置 -->
+        <dependency>
+            <groupId>org.apache.rocketmq</groupId>
+            <artifactId>rocketmq-client</artifactId>
+            <version>4.9.7</version>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

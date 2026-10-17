@@ -24,6 +24,16 @@ mybatis-plus:
   mapper-locations: classpath:mapper/*.xml
 
 short-link:
+  mq:
+    # 统计消息的中间件实现：
+    #   redis-stream（默认）：零外部依赖，本地开发直接可用
+    #   rocketmq：需要可用的 NameServer + Broker（本仓库不内置）
+    # 切换只改这一行，落库与幂等逻辑在两种实现之间共用
+    type: redis-stream
+    rocketmq:
+      name-server: 127.0.0.1:9876
+      topic: clearlink-stats-topic
+      consumer-group: clearlink-stats-consumer-group
   domain:
     # 生成短链接时使用的默认域名。
     # 必须与「浏览器访问短链接时的 host:port」一致：跳转时 fullShortUrl 由
