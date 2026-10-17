@@ -5,8 +5,10 @@ import com.gugucat.shortlink.admin.common.convention.result.Result;
 import com.gugucat.shortlink.admin.remote.dto.req.RecycleBinRecoverReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.RecycleBinRemoveReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.RecycleBinSaveReqDTO;
+import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkBatchCreateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkUpdateReqDTO;
+import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkBatchCreateRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkPageRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkStatsAccessRecordRespDTO;
@@ -35,6 +37,18 @@ public interface ShortLinkActualRemoteService {
      */
     @PostMapping("/api/clearlink/v0.1/create")
     Result<ShortLinkCreateRespDTO> createShortLink(@RequestBody ShortLinkCreateReqDTO requestParam);
+
+    /**
+     * 批量创建短链接
+     * <p>
+     * 返回 Result 而不是 void，理由同其它写接口：中台的业务异常是以
+     * HTTP 200 + 错误码返回的，声明成 void 会把错误码吞掉。
+     *
+     * @param requestParam 批量创建请求参数
+     * @return 成功与失败明细
+     */
+    @PostMapping("/api/clearlink/v0.1/create/batch")
+    Result<ShortLinkBatchCreateRespDTO> batchCreateShortLink(@RequestBody ShortLinkBatchCreateReqDTO requestParam);
 
     /**
      * 修改短链接
