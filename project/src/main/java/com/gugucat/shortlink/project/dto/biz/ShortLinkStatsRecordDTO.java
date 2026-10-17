@@ -25,6 +25,14 @@ public class ShortLinkStatsRecordDTO {
     private String fullShortUrl;
 
     /**
+     * 事件唯一标识
+     * <p>
+     * 一次跳转生成一个。生产者把它写到 MQ 消息的 Key 上，消费者以它作为幂等键：
+     * RocketMQ 是 at-least-once 语义，失败重投不可避免，没有稳定的事件 ID 就会重复计数。
+     */
+    private String eventId;
+
+    /**
      * 访问用户IP
      */
     private String remoteAddr;

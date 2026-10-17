@@ -16,8 +16,9 @@ import static com.gugucat.shortlink.project.common.constant.RedisKeyConstant.SHO
 /**
  * 基于 Redis Stream 的统计消息生产者
  * <p>
- * `short-link.mq.type=redis-stream`（或未配置）时生效 —— 这是默认实现，
- * 零外部依赖，本地跑起来不需要装任何中间件。
+ * `short-link.mq.type=redis-stream`（或未配置）时生效 —— 这是**回滚实现**，
+ * 默认已经切到 RocketMQ。保留它的价值是：本地没有 broker 时仍能零外部依赖跑起来，
+ * 线上 MQ 出问题时也可以改一行配置临时切回。
  */
 @Component
 @RequiredArgsConstructor

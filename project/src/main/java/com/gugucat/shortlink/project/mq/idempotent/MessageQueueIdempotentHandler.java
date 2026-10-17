@@ -19,8 +19,13 @@ import java.util.concurrent.TimeUnit;
  * 处理过程中抛异常时把 key 删掉，是为了让这条消息能被重新处理
  * —— 留着 "0" 的话，重投回来的消息会被误判成「别人正在处理」而永远卡住。
  * <p>
- * key 带 2 分钟过期时间，是给「处理中」这个状态兜底：万一进程在处理途中被杀掉，
- * 没有兜底就会留下一个永不过期的 "0"，这条消息再也消费不了。
+ * key 在两种状态下的存活时间不同：
+ * <ul>
+ *   <li><b>处理中（"0"）2 分钟</b>：进程被杀的兜底，超时后允许重投重新处理；</li>
+ *   <li><b>已完成（"1"）24 小时</b>：覆盖 RocketMQ 的退避重试窗口。
+ *       RocketMQ 的重投可能发生在数小时之后，如果完成态也只留 2 分钟，
+ *       重投回来的消息会被当成新消息再计一次 —— at-least-once 下这是必然会踩的坑。</li>
+ * </ul>
  */
 @Component
 @RequiredArgsConstructor
@@ -34,14 +39,20 @@ public class MessageQueueIdempotentHandler {
     private static final String IDEMPOTENT_KEY_PREFIX = "clearlink:idempotent:";
 
     /**
-     * 幂等标识的过期时间，单位分钟
+     * 「处理中」状态的过期时间，单位分钟
      * <p>
-     * 这个值同时决定了「处理中」状态的兜底时长和「已完成」状态的记忆时长。
-     * 取 2 分钟：统计写入包含一次高德 HTTP 调用（有 3 秒超时），正常处理在秒级，
-     * 2 分钟足够覆盖；而超过 2 分钟还没处理完，基本可以认为那次处理已经失败、
-     * 允许这条消息被重新处理，代价是极小概率的重复计数。
+     * 统计写入包含一次高德 HTTP 调用（3 秒超时），正常处理在秒级；
+     * 超过 2 分钟还没完成，基本可以认为那次处理已经失败，允许重投重新处理。
      */
-    private static final long IDEMPOTENT_KEY_TTL_MINUTES = 2;
+    private static final long PROCESSING_TTL_MINUTES = 2;
+
+    /**
+     * 「已完成」状态的过期时间，单位小时
+     * <p>
+     * 必须覆盖 RocketMQ 的重试窗口：16 级退避的总时长在数小时量级，
+     * 取 24 小时留足余量。Redis Stream 路径同样受益。
+     */
+    private static final long ACCOMPLISHED_TTL_HOURS = 24;
 
     /**
      * 判断当前消息是否正在被消费（即：这条消息本次不该由我再处理）
@@ -54,7 +65,7 @@ public class MessageQueueIdempotentHandler {
      */
     public boolean isMessageBeingConsumed(String messageId) {
         String key = IDEMPOTENT_KEY_PREFIX + messageId;
-        return Boolean.FALSE.equals(stringRedisTemplate.opsForValue().setIfAbsent(key, "0", IDEMPOTENT_KEY_TTL_MINUTES, TimeUnit.MINUTES));
+        return Boolean.FALSE.equals(stringRedisTemplate.opsForValue().setIfAbsent(key, "0", PROCESSING_TTL_MINUTES, TimeUnit.MINUTES));
     }
 
     /**
@@ -75,7 +86,7 @@ public class MessageQueueIdempotentHandler {
      */
     public void setAccomplish(String messageId) {
         String key = IDEMPOTENT_KEY_PREFIX + messageId;
-        stringRedisTemplate.opsForValue().set(key, "1", IDEMPOTENT_KEY_TTL_MINUTES, TimeUnit.MINUTES);
+        stringRedisTemplate.opsForValue().set(key, "1", ACCOMPLISHED_TTL_HOURS, TimeUnit.HOURS);
     }
 
     /**

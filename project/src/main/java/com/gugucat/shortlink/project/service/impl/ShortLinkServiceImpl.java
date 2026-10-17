@@ -444,6 +444,8 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         boolean uipFirstFlag = uipAdded != null && uipAdded > 0L;
         return ShortLinkStatsRecordDTO.builder()
                 .fullShortUrl(fullShortUrl)
+                // 一次跳转一个事件 ID：RocketMQ 生产者用它做消息 Key，消费端用它做幂等键
+                .eventId(UUID.fastUUID().toString())
                 .uv(uv.get())
                 .uvFirstFlag(uvFirstFlag.get())
                 .uipFirstFlag(uipFirstFlag)

@@ -46,11 +46,16 @@ short-link:
     time-window: 1
     max-access-count: 20
   mq:
-    type: redis-stream
+    # rocketmq：默认实现，需要 NameServer + Broker（见 deploy/rocketmq/README.md）
+    # redis-stream：零外部依赖的回滚实现，改这一行即可切回
+    type: rocketmq
     rocketmq:
       name-server: 127.0.0.1:9876
       topic: clearlink-stats-topic
+      producer-group: clearlink-stats-producer-group
       consumer-group: clearlink-stats-consumer-group
+      # 超过该次数仍消费失败，消息进入 %DLQ%clearlink-stats-consumer-group
+      max-reconsume-times: 16
   domain:
     # 直接访问聚合端口时使用的域名；线上由 prod profile 覆盖为公网域名
     default: 127.0.0.1:8003
