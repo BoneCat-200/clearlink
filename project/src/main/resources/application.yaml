@@ -29,6 +29,11 @@ short-link:
     # 必须与「浏览器访问短链接时的 host:port」一致：跳转时 fullShortUrl 由
     # request.getServerName() + port 拼成，两边不一致会导致缓存与数据库都查不到记录
     default: 127.0.0.1:8001
+    # 允许建链时通过 domain 参数指定的域名。只允许配置在这里的域名，
+    # 是为了避免调用方造出一批指向其它域名（我们并不拥有）的坏链接。
+    # 这里要能解析到本服务，且与下面 default 的写法保持一致（不带协议、不带末尾斜杠）
+    white-list:
+      - 127.0.0.1:8001
   stats:
     locale:
       # 高德逆地理的应用 key，用于把访问者 IP 转成省/市。

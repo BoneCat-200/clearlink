@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import com.gugucat.shortlink.project.dto.biz.ShortLinkStatsRecordDTO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkBatchCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkPageReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkUpdateReqDTO;
+import com.gugucat.shortlink.project.dto.resp.ShortLinkBatchCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
 
@@ -22,6 +24,16 @@ public interface ShortLinkService {
      * @return 短链接创建信息
      */
     ShortLinkCreateRespDTO createShortLink(ShortLinkCreateReqDTO requestParam);
+
+    /**
+     * 批量创建短链接
+     * <p>
+     * 逐条创建、互不影响：某一条失败不会让整批回滚，失败明细会一并返回。
+     *
+     * @param requestParam 批量创建请求参数
+     * @return 成功条数、成功明细与失败明细
+     */
+    ShortLinkBatchCreateRespDTO batchCreateShortLink(ShortLinkBatchCreateReqDTO requestParam);
 
     /**
      * 分页查询短链接

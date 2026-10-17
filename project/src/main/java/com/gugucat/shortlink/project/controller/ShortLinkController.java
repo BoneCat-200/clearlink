@@ -3,9 +3,11 @@ package com.gugucat.shortlink.project.controller;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.gugucat.shortlink.project.common.convention.result.Result;
 import com.gugucat.shortlink.project.common.convention.result.Results;
+import com.gugucat.shortlink.project.dto.req.ShortLinkBatchCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkPageReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkUpdateReqDTO;
+import com.gugucat.shortlink.project.dto.resp.ShortLinkBatchCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
 import com.gugucat.shortlink.project.service.ShortLinkService;
@@ -48,6 +50,14 @@ public class ShortLinkController {
     /**
      * 分页查询短链接
      */
+    /**
+     * 批量创建短链接
+     */
+    @PostMapping("/api/clearlink/v0.1/create/batch")
+    public Result<ShortLinkBatchCreateRespDTO> batchCreateShortLink(@RequestBody ShortLinkBatchCreateReqDTO requestParam) {
+        return Results.success(shortLinkService.batchCreateShortLink(requestParam));
+    }
+
     @GetMapping("/api/clearlink/v0.1/page")
     public Result<IPage<ShortLinkPageRespDTO>> pageShortLink(ShortLinkPageReqDTO requestParam) {
         return Results.success(shortLinkService.pageShortLink(requestParam));

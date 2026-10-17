@@ -1,6 +1,7 @@
 package com.gugucat.shortlink.project.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.ArrayUtil;
 import cn.hutool.core.util.StrUtil;
@@ -12,18 +13,24 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.project.common.constant.RedisKeyConstant;
 import com.gugucat.shortlink.project.common.constant.ShortLinkConstant;
+import com.gugucat.shortlink.project.common.convention.exception.AbstractException;
 import com.gugucat.shortlink.project.common.convention.exception.ClientException;
 import com.gugucat.shortlink.project.common.convention.exception.ServiceException;
 import com.gugucat.shortlink.project.common.enums.ValidDateTypeEnum;
+import com.gugucat.shortlink.project.config.CreateDomainConfiguration;
 import com.gugucat.shortlink.project.config.GotoDomainWhiteListConfiguration;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkDO;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkGotoDO;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkGotoMapper;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkMapper;
 import com.gugucat.shortlink.project.dto.biz.ShortLinkStatsRecordDTO;
+import com.gugucat.shortlink.project.dto.req.ShortLinkBatchCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkPageReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkUpdateReqDTO;
+import com.gugucat.shortlink.project.dto.resp.ShortLinkBaseInfoRespDTO;
+import com.gugucat.shortlink.project.dto.resp.ShortLinkBatchCreateFailureRespDTO;
+import com.gugucat.shortlink.project.dto.resp.ShortLinkBatchCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
 import com.gugucat.shortlink.project.mq.producer.ShortLinkStatsSaveProducer;
@@ -51,6 +58,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
@@ -76,6 +84,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
     private final RedissonClient redissonClient;
     private final ShortLinkStatsSaveProducer shortLinkStatsSaveProducer;
     private final GotoDomainWhiteListConfiguration gotoDomainWhiteListConfiguration;
+    private final CreateDomainConfiguration createDomainConfiguration;
 
     @Value("${short-link.domain.default}")
     private String createShortLinkDefaultDomain;
@@ -84,6 +93,14 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
      * 抓取目标网站图标的超时时间，单位毫秒
      */
     private static final int FAVICON_FETCH_TIMEOUT_MS = 5000;
+
+    /**
+     * 单次批量创建的最大条数
+     * <p>
+     * 不设上限的话，一次请求能把几十万条塞进来：每条都要抓一次目标网站图标、
+     * 写两次库、写一次缓存，请求会长时间占着线程，也容易把下游打挂。
+     */
+    private static final int MAX_BATCH_CREATE_SIZE = 100;
 
     @Transactional(rollbackFor = Exception.class)
     @Override
@@ -101,10 +118,12 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             throw new ClientException("原始链接不能为空");
         }
         verificationWhitelist(requestParam.getOriginUrl());
-        String shortLinkSuffix = generateSuffix(requestParam);
-        String fullShortUrl = createShortLinkDefaultDomain + "/" + shortLinkSuffix;
+        // 域名：请求里指定了就用它（必须在白名单内），否则回退默认域名
+        String domain = resolveDomain(requestParam.getDomain());
+        String shortLinkSuffix = generateSuffix(requestParam, domain);
+        String fullShortUrl = domain + "/" + shortLinkSuffix;
         ShortLinkDO shortLinkDO = ShortLinkDO.builder()
-                .domain(createShortLinkDefaultDomain)
+                .domain(domain)
                 .originUrl(requestParam.getOriginUrl())
                 .gid(requestParam.getGid())
                 .createdType(requestParam.getCreatedType())
@@ -520,12 +539,123 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
     }
 
     /**
+     * 批量创建短链接
+     * <p>
+     * 逐条复用单条创建，某一条失败不影响其它条。
+     */
+    @Override
+    public ShortLinkBatchCreateRespDTO batchCreateShortLink(ShortLinkBatchCreateReqDTO requestParam) {
+        List<String> originUrls = requestParam.getOriginUrls();
+        if (CollUtil.isEmpty(originUrls)) {
+            throw new ClientException("原始链接不能为空");
+        }
+        if (originUrls.size() > MAX_BATCH_CREATE_SIZE) {
+            throw new ClientException("单次批量创建不能超过 " + MAX_BATCH_CREATE_SIZE + " 条");
+        }
+        List<String> describes = Optional.ofNullable(requestParam.getDescribes()).orElse(List.of());
+        // 原始链接与描述是两个平行集合、按下标对应。长度不一致时第 i 条会拿到别人的描述，
+        // 或者直接下标越界（参考实现就是这样：describes 短了会抛 IndexOutOfBounds，
+        // 整批在循环中途失败，前面已建的也白建了 —— 所以在循环前就拦下）
+        if (!describes.isEmpty() && describes.size() != originUrls.size()) {
+            throw new ClientException("描述数量与原始链接数量不一致");
+        }
+        List<ShortLinkBaseInfoRespDTO> baseLinkInfos = new ArrayList<>(originUrls.size());
+        List<ShortLinkBatchCreateFailureRespDTO> failures = new ArrayList<>();
+        for (int i = 0; i < originUrls.size(); i++) {
+            String originUrl = originUrls.get(i);
+            String describe = describes.isEmpty() ? null : describes.get(i);
+            // 逐条复用单条创建：校验、域名解析、短码生成、双表插入、缓存预热、布隆都是一套逻辑，
+            // 批量只是把它们循环一遍。
+            // 注意：这里属于自调用，createShortLink 上的 @Transactional 不会生效（Spring 代理被绕过），
+            // 所以单条的两次插入没有原子性。风险已知并登记在开发文档里，本步骤不改事务结构。
+            ShortLinkCreateReqDTO createReqDTO = BeanUtil.toBean(requestParam, ShortLinkCreateReqDTO.class);
+            createReqDTO.setOriginUrl(originUrl);
+            createReqDTO.setDescribe(describe);
+            try {
+                ShortLinkCreateRespDTO created = createShortLink(createReqDTO);
+                baseLinkInfos.add(ShortLinkBaseInfoRespDTO.builder()
+                        .describe(describe)
+                        .originUrl(created.getOriginUrl())
+                        .fullShortUrl(created.getFullShortUrl())
+                        .build());
+            } catch (Throwable ex) {
+                // 单条失败不能影响其它条：批量的语义是「尽量多建几条」。
+                // 参考实现这里只打日志、把失败项丢掉，调用方不知道哪条没建成、为什么
+                log.error("批量创建短链接失败，原始链接：{}", originUrl, ex);
+                failures.add(ShortLinkBatchCreateFailureRespDTO.builder()
+                        .originUrl(originUrl)
+                        .reason(ex instanceof AbstractException ? ((AbstractException) ex).getErrorMessage() : ex.getMessage())
+                        .build());
+            }
+        }
+        return ShortLinkBatchCreateRespDTO.builder()
+                .total(baseLinkInfos.size())
+                .baseLinkInfos(baseLinkInfos)
+                .failures(failures)
+                .build();
+    }
+
+    /**
+     * 解析本次建链使用的域名
+     * <p>
+     * 请求里指定了域名就用它，但必须命中 `short-link.domain.white-list`；
+     * 没指定就用默认域名。
+     * <p>
+     * 为什么要白名单：短链接的 domain 会同时写进 `t_link.domain` 和
+     * `full_short_url`，而跳转时是用「请求的 host:port + 短码」拼回来查的。
+     * 允许任意域名，等于让别人用我们的服务造出一批指向他们域名（或不存在域名）的
+     * 短链接 —— 这些链接根本跳不通，还可能被当成跳板。
+     *
+     * @param requestedDomain 请求里指定的域名，可为空
+     * @return 归一化后的域名
+     */
+    private String resolveDomain(String requestedDomain) {
+        String domain = normalizeDomain(requestedDomain);
+        if (StrUtil.isBlank(domain)) {
+            return createShortLinkDefaultDomain;
+        }
+        List<String> whiteList = createDomainConfiguration.getWhiteList();
+        if (CollUtil.isEmpty(whiteList) || !whiteList.contains(domain)) {
+            // 白名单为空时连默认域名之外的都不放行 —— 缺配置时应当「谁都不许」而不是「谁都行」
+            throw new ClientException("不支持的域名：" + domain);
+        }
+        return domain;
+    }
+
+    /**
+     * 归一化域名：去掉协议前缀、首尾空白与末尾斜杠
+     * <p>
+     * 调用方常把 `https://example.com/` 整个当域名传进来，而库里存的是
+     * `example.com`（不带协议、不带末尾斜杠）。不归一化就会拼出
+     * `https://example.com//abc` 这种既不合法、也和跳转时拼出来的标识对不上的值。
+     *
+     * @param domain 原始域名
+     * @return 归一化后的域名；入参为空白时返回 null
+     */
+    private String normalizeDomain(String domain) {
+        if (StrUtil.isBlank(domain)) {
+            return null;
+        }
+        String result = domain.trim();
+        if (result.startsWith("https://")) {
+            result = result.substring("https://".length());
+        } else if (result.startsWith("http://")) {
+            result = result.substring("http://".length());
+        }
+        while (result.endsWith("/")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
+    }
+
+    /**
      * 短链接后缀生成
      *
      * @param requestParam 创建短链接请求参数
+     * @param domain       本次建链使用的域名，用于布隆过滤器判重
      * @return 短链接后缀
      */
-    private String generateSuffix(ShortLinkCreateReqDTO requestParam) {
+    private String generateSuffix(ShortLinkCreateReqDTO requestParam, String domain) {
         int customGenerateCount = 0; // 短链接生成失败次数
         String shortUri;
         while (true) {
@@ -536,8 +666,12 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             originUrl += UUID.randomUUID().toString(); // 原始url拼上随机UUID，保证同一原始链接每次生成的短码也不相同
             shortUri = HashUtil.hashToBase62(originUrl);
             // 用布隆过滤器判重而不是查库：判「不存在」是准确的，判「存在」可能是误判，
-            // 误判只会让本次多循环一轮，代价远小于每次都打一次数据库
-            if (!shortUriCreateCachePenetrationBloomFilter.contains(createShortLinkDefaultDomain + "/" + shortUri)) {
+            // 误判只会让本次多循环一轮，代价远小于每次都打一次数据库。
+            // 判重键必须与数据库唯一索引、跳转时的缓存 key 完全一致，都用「实际域名」：
+            // 固定拼默认域名的话，A 域名下的判定会被用到 B 域名上 ——
+            // 要么把合法的短码误判成重复（白转 10 轮后报「频繁生成」），
+            // 要么漏判后撞到数据库唯一索引（错误码退化成服务端错误）
+            if (!shortUriCreateCachePenetrationBloomFilter.contains(domain + "/" + shortUri)) {
                 break;
             }
             customGenerateCount++;
