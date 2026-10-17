@@ -1,6 +1,7 @@
 package com.gugucat.shortlink.admin.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.collection.CollUtil;
 import com.alibaba.fastjson2.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -25,6 +26,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -35,6 +37,14 @@ import static com.gugucat.shortlink.admin.common.constant.RedisCacheConstant.USE
 @Service
 @RequiredArgsConstructor
 public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements UserService {
+
+    /**
+     * 登录会话的有效期，单位分钟
+     * <p>
+     * 每次登录（含已登录时的重复登录）都会把有效期续到这个时长。
+     * 取 30 分钟与参考实现、以及文档里的会话口径一致（原实现是 10 分钟）。
+     */
+    private static final long USER_LOGIN_TTL_MINUTES = 30;
 
     private final RBloomFilter<String> userRegisterCachePenetrationBloomFilter;
     private final RedissonClient redissonClient;
@@ -105,9 +115,20 @@ public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements 
         if (userDO == null){
             throw new ClientException(UserErrorCodeEnum.USER_NULL);
         }
-        if (stringRedisTemplate.hasKey(USER_LOGIN_KEY + userDO.getUsername())){ // 如果redis中已经存在该用户的用户名
-            // TODO 返回已有token并续期
-            throw new ClientException("用户已登录");
+        String loginKey = USER_LOGIN_KEY + userDO.getUsername();
+        // 已登录时不报错，直接把已有 token 返回并给会话续期。
+        // 原来的实现抛「用户已登录」—— 这会让「刷新页面后重新登录」直接失败，
+        // 前端也拿不到 token 去续期，只能干等会话过期。
+        // 注意校验仍在前面：用户名密码不对的话走不到这里
+        Map<Object, Object> hasLoginMap = stringRedisTemplate.opsForHash().entries(loginKey);
+        if (CollUtil.isNotEmpty(hasLoginMap)) {
+            stringRedisTemplate.expire(loginKey, USER_LOGIN_TTL_MINUTES, TimeUnit.MINUTES);
+            String token = hasLoginMap.keySet().stream()
+                    .findFirst()
+                    .map(Object::toString)
+                    // 理论上不会发生（hash 非空就至少有一个 field），兜底成可读错误
+                    .orElseThrow(() -> new ClientException("用户登录错误"));
+            return new UserLoginRespDTO(token);
         }
         /**
          * token存储结构：
@@ -117,10 +138,9 @@ public class UserServicelmpl extends ServiceImpl<UserMapper, UserDO> implements 
          *      value:用户信息JSON
          */
         String token = UUID.randomUUID().toString();
-        String loginKey = USER_LOGIN_KEY + userDO.getUsername();
-        // TODO 将用户信息存储进Redis前过滤敏感字段
+        // TODO 将用户信息存储进Redis前过滤敏感字段（目前整条 UserDO 都进了 Redis，含密码）
         stringRedisTemplate.opsForHash().put(loginKey, token, JSON.toJSONString(userDO));
-        stringRedisTemplate.expire(loginKey, 10, TimeUnit.MINUTES);
+        stringRedisTemplate.expire(loginKey, USER_LOGIN_TTL_MINUTES, TimeUnit.MINUTES);
 
         return new UserLoginRespDTO(token);
     }
