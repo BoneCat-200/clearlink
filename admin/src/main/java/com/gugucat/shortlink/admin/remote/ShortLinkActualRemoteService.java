@@ -25,9 +25,13 @@ import java.util.List;
 /**
  * 短链接中台远程调用服务
  * <p>
- * 只给服务名不给 url，走 Nacos 服务发现找 clearlink-project 的实例。
+ * 默认只给服务名，走 Nacos 服务发现找 clearlink-project 的实例。
+ * <p>
+ * 聚合部署时 admin 与 project 在同一个 JVM 里，没有独立的 project 实例可发现，
+ * 因此聚合模块会把 {@code aggregation.remote-url} 配成本机端口，让 Feign 直接调自己；
+ * 该配置为空时（微服务模式）仍然走服务发现。
  */
-@FeignClient(value = "clearlink-project")
+@FeignClient(value = "clearlink-project", url = "${aggregation.remote-url:}")
 public interface ShortLinkActualRemoteService {
 
     /**

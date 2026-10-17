@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>
  * 后管自身不存短链接数据，全部转发给短链接中台（project 模块）。
  */
-@RestController
+@RestController("shortLinkControllerByAdmin")  // 显式命名，避免聚合部署时与 project 模块的同名 Bean 冲突
 @RequiredArgsConstructor
 public class ShortLinkController {
 

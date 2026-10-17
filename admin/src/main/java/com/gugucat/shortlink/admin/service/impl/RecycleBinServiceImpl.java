@@ -21,7 +21,7 @@ import java.util.List;
  * 短链接数据在中台，但「当前用户有哪些分组」只有后管知道（t_group 在后管）。
  * 回收站是跨分组的视图，所以由后管先算出 gidList 再交给中台分页。
  */
-@Service
+@Service("recycleBinServiceImplByAdmin")  // 显式命名，避免聚合部署时与 project 模块的同名 Bean 冲突
 @RequiredArgsConstructor
 public class RecycleBinServiceImpl implements RecycleBinService {
 

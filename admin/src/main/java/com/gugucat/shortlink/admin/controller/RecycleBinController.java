@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 单条记录的写操作（移入 / 恢复 / 移除）后管只做转发；
  * 分页查询需要先按当前用户算出分组集合，所以走 RecycleBinService。
  */
-@RestController
+@RestController("recycleBinControllerByAdmin")  // 显式命名，避免聚合部署时与 project 模块的同名 Bean 冲突
 @RequiredArgsConstructor
 public class RecycleBinController {
 

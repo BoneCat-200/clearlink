@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 换组动作发生在中台（跨分组迁移要读写 t_link/t_link_goto），变更记录也在中台。
  * 后管只做转发，用户态由 Feign 拦截器透传（中台要按 gid + username 校验归属）。
  */
-@RestController
+@RestController("linkChangeLogControllerByAdmin")  // 显式命名，避免聚合部署时与 project 模块的同名 Bean 冲突
 @RequiredArgsConstructor
 public class LinkChangeLogController {
 

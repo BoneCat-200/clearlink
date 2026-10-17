@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>
  * 抓取动作在中台完成，后管只做转发。
  */
-@RestController
+@RestController("urlTitleControllerByAdmin")  // 显式命名，避免聚合部署时与 project 模块的同名 Bean 冲突
 @RequiredArgsConstructor
 public class UrlTitleController {
 

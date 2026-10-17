@@ -23,7 +23,8 @@ import java.util.Optional;
  * 全局异常拦截器
  *
  */
-@Component
+// 显式命名：聚合部署时 admin 与 project 的同名类会同时被扫描，默认 Bean 名会冲突
+@Component("globalExceptionHandlerByAdmin")
 @Slf4j  // 日志
 @RestControllerAdvice   // 声明全局异常处理器
 public class GlobalExceptionHandler {

@@ -11,7 +11,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 /**
  * 用户配置自动装配
  */
-@Configuration
+// 显式命名：聚合部署时 project 模块也有一个 UserConfiguration
+@Configuration("userConfigurationByAdmin")
 public class UserConfiguration {
 
     /**

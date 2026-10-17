@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 用户态由 Feign 拦截器自动带上（见 {@code OpenFeignConfiguration}），
  * 所以这里只需要把查询参数原样转过去。
  */
-@RestController
+@RestController("shortLinkStatsControllerByAdmin")  // 显式命名，避免聚合部署时与 project 模块的同名 Bean 冲突
 @RequiredArgsConstructor
 public class ShortLinkStatsController {
 

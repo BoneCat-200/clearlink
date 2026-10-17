@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * Redis布隆过滤器配置类
  */
-@Configuration  // 标记配置类
+@Configuration("rBloomFilterConfigurationByAdmin")  // 显式命名，避免聚合部署时与 project 模块的同名配置冲突
 public class RBloomFilterConfiguration {
 
     /**
