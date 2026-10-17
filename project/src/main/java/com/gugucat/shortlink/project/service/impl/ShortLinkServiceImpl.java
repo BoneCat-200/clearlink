@@ -290,7 +290,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         // 第一条路径：缓存命中，直接重定向，一次数据库都不碰
         String originalLink = stringRedisTemplate.opsForValue().get(gotoShortLinkKey);
         if (StrUtil.isNotBlank(originalLink)) {
-            shortLinkStats(buildLinkStatsRecordAndSetUser(fullShortUrl, request, response));
+            recordStatsQuietly(fullShortUrl, request, response);
             ((HttpServletResponse) response).sendRedirect(originalLink);
             return;
         }
@@ -314,7 +314,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
             // 双重检查：等锁这段时间里，缓存可能已经被拿到锁的那个线程填好了
             originalLink = stringRedisTemplate.opsForValue().get(gotoShortLinkKey);
             if (StrUtil.isNotBlank(originalLink)) {
-                shortLinkStats(buildLinkStatsRecordAndSetUser(fullShortUrl, request, response));
+                recordStatsQuietly(fullShortUrl, request, response);
                 ((HttpServletResponse) response).sendRedirect(originalLink);
                 return;
             }
@@ -352,7 +352,7 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 stringRedisTemplate.opsForValue().set(gotoShortLinkKey, shortLinkDO.getOriginUrl(), cacheValidTime, TimeUnit.MILLISECONDS);
             }
             ((HttpServletResponse) response).sendRedirect(shortLinkDO.getOriginUrl());
-            shortLinkStats(buildLinkStatsRecordAndSetUser(fullShortUrl, request, response));
+            recordStatsQuietly(fullShortUrl, request, response);
         } finally {
             lock.unlock();
         }
@@ -425,6 +425,33 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
         producerMap.put("statsRecord", JSON.toJSONString(statsRecord));
         // 只投递不落库：跳转是最高频的操作，统计的写库动作交给消费者异步做
         shortLinkStatsSaveProducer.send(producerMap);
+    }
+
+    /**
+     * 采集并上报本次访问的统计，<b>失败只记日志，不让异常冒出去</b>
+     * <p>
+     * 为什么必须包一层：采集里有好几处会抛异常的地方 —— 解析 UA、读 Cookie、
+     * 往 Redis 的 UV/UIP 集合里写。而这几处都在 {@code sendRedirect} <b>之前</b>执行，
+     * 一旦抛异常，跳转就被打断了：用户点短链接，得到的是一个 200 空响应，
+     * 链接完全打不开。
+     * <p>
+     * 实测过的真实案例：请求不带 {@code User-Agent} 时，
+     * {@code LinkUtil.getOs} 对 null 调 {@code toLowerCase()} 抛 NPE，
+     * 短链接的响应码从 302 变成 200。
+     * <p>
+     * 所以这里的原则是：<b>统计是旁路，任何失败都不能影响跳转</b>。
+     * 用 {@code Throwable} 而不是 {@code Exception}，连 Error 一起兜住。
+     *
+     * @param fullShortUrl 完整短链接
+     * @param request      HTTP 请求
+     * @param response     HTTP 响应
+     */
+    private void recordStatsQuietly(String fullShortUrl, ServletRequest request, ServletResponse response) {
+        try {
+            shortLinkStats(buildLinkStatsRecordAndSetUser(fullShortUrl, request, response));
+        } catch (Throwable ex) {
+            log.error("采集短链接访问统计失败，本次跳转不受影响。fullShortUrl: {}", fullShortUrl, ex);
+        }
     }
 
     /**

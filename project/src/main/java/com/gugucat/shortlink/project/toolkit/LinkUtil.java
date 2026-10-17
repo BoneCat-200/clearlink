@@ -90,7 +90,10 @@ public class LinkUtil {
      * @return 访问操作系统
      */
     public static String getOs(HttpServletRequest request) {
-        String userAgent = request.getHeader("User-Agent").toLowerCase();
+        // UA 是客户端自愿携带的请求头，缺省时 getHeader 返回 null。
+        // 直接 .toLowerCase() 会空指针，而调用它的跳转链路在 sendRedirect 之前 ——
+        // 结果是「少一个请求头」就让短链接完全跳不动（实测：不带 UA 时返回 200 而不是 302）
+        String userAgent = StrUtil.blankToDefault(request.getHeader("User-Agent"), "").toLowerCase();
         if (userAgent.contains("windows")) {
             return "Windows";
         } else if (userAgent.contains("android")) {
@@ -113,18 +116,19 @@ public class LinkUtil {
      * @return 访问浏览器
      */
     public static String getBrowser(HttpServletRequest request) {
-        String userAgent = request.getHeader("User-Agent");
-        if (userAgent.toLowerCase().contains("edg")) {
+        // 同 getOs：UA 缺省时不能空指针
+        String userAgent = StrUtil.blankToDefault(request.getHeader("User-Agent"), "").toLowerCase();
+        if (userAgent.contains("edg")) {
             return "Microsoft Edge";
-        } else if (userAgent.toLowerCase().contains("chrome")) {
+        } else if (userAgent.contains("chrome")) {
             return "Google Chrome";
-        } else if (userAgent.toLowerCase().contains("firefox")) {
+        } else if (userAgent.contains("firefox")) {
             return "Mozilla Firefox";
-        } else if (userAgent.toLowerCase().contains("safari")) {
+        } else if (userAgent.contains("safari")) {
             return "Apple Safari";
-        } else if (userAgent.toLowerCase().contains("opera")) {
+        } else if (userAgent.contains("opera")) {
             return "Opera";
-        } else if (userAgent.toLowerCase().contains("msie") || userAgent.toLowerCase().contains("trident")) {
+        } else if (userAgent.contains("msie") || userAgent.contains("trident")) {
             return "Internet Explorer";
         } else {
             return "Unknown";
@@ -138,8 +142,13 @@ public class LinkUtil {
      * @return 访问设备
      */
     public static String getDevice(HttpServletRequest request) {
-        String userAgent = request.getHeader("User-Agent");
-        if (userAgent.toLowerCase().contains("mobile")) {
+        String userAgent = StrUtil.blankToDefault(request.getHeader("User-Agent"), "").toLowerCase();
+        if (userAgent.isEmpty()) {
+            // 没有 UA 就判断不出设备。这里不能沿用「不含 mobile 就算 PC」的兜底 ——
+            // 那会把所有爬虫、脚本、健康检查都算成 PC，凭空抬高 PC 的占比
+            return "Unknown";
+        }
+        if (userAgent.contains("mobile")) {
             return "Mobile";
         }
         return "PC";
