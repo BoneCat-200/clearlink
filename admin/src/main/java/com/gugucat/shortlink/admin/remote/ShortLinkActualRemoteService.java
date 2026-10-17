@@ -10,6 +10,7 @@ import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkCreateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.req.ShortLinkUpdateReqDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkBatchCreateRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkCreateRespDTO;
+import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkChangeLogRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkPageRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkStatsAccessRecordRespDTO;
 import com.gugucat.shortlink.admin.remote.dto.resp.ShortLinkStatsRespDTO;
@@ -165,6 +166,21 @@ public interface ShortLinkActualRemoteService {
     Result<ShortLinkStatsRespDTO> groupShortLinkStats(@RequestParam("gid") String gid,
                                                       @RequestParam("startDate") String startDate,
                                                       @RequestParam("endDate") String endDate);
+
+    /**
+     * 分页查询某条短链接的变更分组历史
+     *
+     * @param fullShortUrl 完整短链接
+     * @param gid          分组标识（用于归属校验）
+     * @param current      当前页
+     * @param size         每页条数
+     * @return 变更记录分页
+     */
+    @GetMapping("/api/clearlink/v0.1/change-log")
+    Result<Page<ShortLinkChangeLogRespDTO>> pageChangeLog(@RequestParam("fullShortUrl") String fullShortUrl,
+                                                          @RequestParam("gid") String gid,
+                                                          @RequestParam("current") Long current,
+                                                          @RequestParam("size") Long size);
 
     /**
      * 获取单个短链接在指定日期内的访问记录
