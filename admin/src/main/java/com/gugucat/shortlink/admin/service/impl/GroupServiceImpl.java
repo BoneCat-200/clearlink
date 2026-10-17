@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gugucat.shortlink.admin.common.biz.user.UserContext;
+import com.gugucat.shortlink.admin.common.convention.exception.ClientException;
 import com.gugucat.shortlink.admin.dao.entity.GroupDO;
 import com.gugucat.shortlink.admin.dao.mapper.GroupMapper;
 import com.gugucat.shortlink.admin.dto.req.GroupSortReqDTO;
@@ -14,10 +15,15 @@ import com.gugucat.shortlink.admin.dto.resp.LinkGroupRespDTO;
 import com.gugucat.shortlink.admin.service.GroupService;
 import com.gugucat.shortlink.admin.util.RandomGIDUtils;
 import lombok.RequiredArgsConstructor;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+
+import static com.gugucat.shortlink.admin.common.constant.RedisCacheConstant.LOCK_GROUP_CREATE_KEY;
 
 /**
  * 短链接分组业务层实现
@@ -26,6 +32,14 @@ import java.util.List;
 @RequiredArgsConstructor
 public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implements GroupService {
 
+    private final RedissonClient redissonClient;
+
+    /**
+     * 每个用户最多能拥有的分组数
+     */
+    @Value("${short-link.group.max-num:20}")
+    private Integer groupMaxNum;
+
     @Override
     public void saveGroup(String groupName) {
         saveGroup(UserContext.getUsername(), groupName);    // 归属人取当前登录用户
@@ -33,17 +47,33 @@ public class GroupServiceImpl extends ServiceImpl<GroupMapper, GroupDO> implemen
 
     @Override
     public void saveGroup(String username, String groupName) {
-        String gid;
-        do {
-            gid = RandomGIDUtils.generate();
-        }while (hasGid(username, gid));   //  循环生成 gid，直到生成的 gid 不存在于数据库中
-        GroupDO groupDO = GroupDO.builder()
-                .gid(gid)
-                .sortOrder(0)
-                .username(username)
-                .name(groupName)
-                .build();
-        baseMapper.insert(groupDO);
+        // 按用户加锁：「查数量」和「插入」之间不是原子的。
+        // 不加锁时两个并发请求都会看到「还差一个到上限」，各插一条，一起突破上限。
+        // 锁的粒度是用户名，不同用户互不影响
+        RLock lock = redissonClient.getLock(String.format(LOCK_GROUP_CREATE_KEY, username));
+        lock.lock();
+        try {
+            Long groupCount = baseMapper.selectCount(Wrappers.lambdaQuery(GroupDO.class)
+                    .eq(GroupDO::getUsername, username)     // 分片键，精确路由
+                    .eq(GroupDO::getDelFlag, 0));
+            // 用 >= 而不是参考实现的 ==：后者在并发或数据异常（数量已超上限）时不再拦截
+            if (groupCount != null && groupCount >= groupMaxNum) {
+                throw new ClientException("已超出最大分组数：" + groupMaxNum);
+            }
+            String gid;
+            do {
+                gid = RandomGIDUtils.generate();
+            }while (hasGid(username, gid));   //  循环生成 gid，直到生成的 gid 不存在于数据库中
+            GroupDO groupDO = GroupDO.builder()
+                    .gid(gid)
+                    .sortOrder(0)
+                    .username(username)
+                    .name(groupName)
+                    .build();
+            baseMapper.insert(groupDO);
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override

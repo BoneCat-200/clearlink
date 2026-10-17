@@ -18,3 +18,8 @@ spring:
     nacos:
       discovery:
         server-addr: 127.0.0.1:8848
+
+short-link:
+  group:
+    # 每个用户最多能创建的分组数
+    max-num: 20
