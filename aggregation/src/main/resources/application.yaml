@@ -1,0 +1,72 @@
+server:
+  port: 8003
+
+spring:
+  application:
+    name: clearlink-aggregation
+  datasource:
+    # 聚合服务使用独立命名的分片配置，避免命中 admin/project jar 里的同名文件
+    driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
+    url: jdbc:shardingsphere:classpath:shardingsphere-config-aggregation.yaml
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: 123456
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+
+aggregation:
+  # 聚合模式下没有独立的 project 实例，admin 的 Feign 直接调本机自己
+  remote-url: http://127.0.0.1:${server.port}
+
+short-link:
+  group:
+    max-num: 20
+  flow-limit:
+    # 风控过滤器挂载在 /* 上，短链接跳转也会被按 IP 限流；
+    # 公网部署时若开启，需要先确认它不会误伤正常的跳转流量
+    enable: false
+    time-window: 1
+    max-access-count: 20
+  mq:
+    type: redis-stream
+    rocketmq:
+      name-server: 127.0.0.1:9876
+      topic: clearlink-stats-topic
+      consumer-group: clearlink-stats-consumer-group
+  domain:
+    # 直接访问聚合端口时使用的域名；线上由 prod profile 覆盖为公网域名
+    default: 127.0.0.1:8003
+    white-list:
+      - 127.0.0.1:8003
+  stats:
+    locale:
+      # 高德逆地理 key 属于个人凭据，只从环境变量注入，不写进配置文件
+      amap-key: ${AMAP_KEY:}
+  goto-domain:
+    white-list:
+      # 限制短链接可跳转的目标域名；本地联调关闭
+      enable: false
+      names: '拿个offer,知乎,掘金,博客园'
+      details:
+        - nageoffer.com
+        - zhihu.com
+        - juejin.cn
+        - cnblogs.com
+
+mybatis-plus:
+  # 自定义 SQL 在 project 模块的 mapper 目录下，聚合后仍在同一个 classpath 上
+  mapper-locations: classpath:mapper/*.xml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 线上只暴露必要端点；include: '*' 会把 env、beans 等敏感信息一并公开
+        include: health,info,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}

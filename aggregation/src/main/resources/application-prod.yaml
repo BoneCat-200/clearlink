@@ -1,0 +1,14 @@
+# 线上部署覆盖项：用 --spring.profiles.active=prod 启动时生效
+server:
+  # 让 Spring Boot 采用容器的反向代理支持：
+  # Nginx 转发时会带上 X-Forwarded-Host / X-Forwarded-Port，
+  # 短链接跳转要按「用户实际访问的域名与端口」拼完整短链接，
+  # 不感知转发头的话会拼成内网的 8003 端口，导致缓存与数据库都命中不到
+  forward-headers-strategy: native
+
+short-link:
+  domain:
+    # 公网域名，可通过环境变量覆盖（例如 SHORT_LINK_DOMAIN=link.example.com）
+    default: ${SHORT_LINK_DOMAIN:clearlink.test}
+    white-list:
+      - ${SHORT_LINK_DOMAIN:clearlink.test}

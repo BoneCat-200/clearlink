@@ -10,6 +10,7 @@
     <packaging>pom</packaging> <!--  父模块不需要打包  -->
     <modules>
         <module>admin</module>
+        <module>aggregation</module>
         <module>gateway</module>
         <module>project</module>
     </modules>
