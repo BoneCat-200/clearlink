@@ -4,11 +4,14 @@
 
 Clearlink 是一个短链接系统，提供三项能力：由原始链接生成短链接、通过短链接跳转至原始链接、以及跳转行为的访问统计。
 
-系统由两个后端服务组成：
+系统由四个后端模块组成，支持两种部署形态：
 
 - **管理端（admin，端口 8002）**：面向控制台的接口入口，负责用户、分组、回收站的管理。管理端自身不存储短链接数据，通过 OpenFeign（Nacos 服务发现）调用中台。
 - **中台（project，端口 8001）**：短链接核心域，负责创建短链接、短链接跳转、回收站、网页标题抓取，以及访问统计的采集与落库。
-- **网关（gateway，端口 8000）**：仅包含 Maven 模块定义与端口配置，未实现路由与鉴权，当前所有接口均由客户端直接请求管理端或中台。
+- **网关（gateway，端口 8000）**：统一入口，按 Nacos 服务名路由，并在入口处完成 Token 校验与用户信息透传。
+- **聚合服务（aggregation，端口 8003）**：同一个 JVM 内同时运行 admin 与 project 的部署壳。admin 通过 `aggregation.remote-url` 让 Feign 回指本机，适合线上单进程部署。
+
+微服务形态下，网关把请求转发给 admin / project；聚合形态下，网关只转发 API，短链接跳转由 Nginx 直接交给聚合服务。两种形态共用同一套数据库与 Redis。
 
 核心链路：创建短链接时生成 `domain/shortUri`；访问该短链接时重定向至原始链接；每次跳转经 Redis Stream 异步写入统计表，统计维度包括 PV、UV、UIP、地域、浏览器、操作系统、设备与网络。
 
@@ -109,11 +112,23 @@ mvn clean install -DskipTests
 
 ### 启动顺序
 
-1. 启动 Nacos。
-2. 启动中台（端口 8001）。
-3. 启动管理端（端口 8002）。
+**微服务形态（开发默认）**
 
-两个模块均未配置 `spring-boot-maven-plugin`，命令行启动方式为：先编译，再导出依赖 classpath，然后运行主类。也可以直接由 IDE 运行主类。
+1. 启动 Nacos。
+2. 启动中台（端口 8001）与管理端（端口 8002）。
+3. 启动网关（端口 8000，默认 `dev` profile，路由到 admin / project）。
+
+**聚合形态（线上部署）**
+
+1. 启动 Nacos。
+2. 启动聚合服务（端口 8003，`prod` profile）。
+3. 启动网关（端口 8000，`aggregation` profile，路由到聚合服务）。
+4. 按 [deploy/README.md](deploy/README.md) 配置 Nginx 与域名。
+
+> 同一时间只启动一种形态：聚合服务与独立 project 共用同一个 Redis Stream 消费组，
+> 同时启动会互相争抢统计消息。
+
+admin 与 project 均未配置 `spring-boot-maven-plugin`，命令行启动方式为：先编译，再导出依赖 classpath，然后运行主类。也可以直接由 IDE 运行主类。
 
 启动中台：
 
@@ -132,6 +147,16 @@ java -cp "admin/target/classes;$(cat admin/target/cp.txt)" com.gugucat.shortlink
 ```
 
 classpath 分隔符在 Windows 下为分号，在 Linux 与 macOS 下为冒号。
+
+网关与聚合服务已配置 `spring-boot-maven-plugin`，可以直接运行打包产物：
+
+```bash
+mvn -pl gateway -am package -DskipTests
+java -jar gateway/target/clearlink-gateway.jar
+
+mvn -pl aggregation -am package -DskipTests
+java -jar aggregation/target/clearlink-aggregation.jar --spring.profiles.active=prod
+```
 
 ### 配置项
 
@@ -227,7 +252,21 @@ clearlink
 │           ├── shardingsphere-config.yaml
 │           ├── mapper/LinkMapper.xml        自定义分页 SQL
 │           └── templates/notfound.html      短链接不存在的提示页
-├── gateway/                    网关模块，端口 8000，未实现
+├── aggregation/                聚合服务，端口 8003，单 JVM 运行 admin + project
+│   └── src/main/
+│       ├── java/com/gugucat/shortlink/aggregation/
+│       │   └── AggregationServiceApplication.java
+│       └── resources/
+│           ├── application.yaml                 聚合配置（合并两个模块的配置）
+│           ├── application-prod.yaml            线上域名与反向代理配置
+│           └── shardingsphere-config-aggregation.yaml  合并后的分片与加密规则
+├── gateway/                    网关服务，端口 8000
+│   └── src/main/java/com/gugucat/shortlink/gateway/
+│       ├── GatewayServiceApplication.java
+│       ├── filter/              Token 校验过滤器
+│       ├── config/              过滤器参数
+│       └── dto/                 网关错误返回体
+├── deploy/                     线上部署：Nginx 配置与部署说明
 └── docs/
     └── 接口文档.md             接口契约文档
 ```

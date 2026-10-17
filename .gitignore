@@ -37,6 +37,10 @@ build/
 ### Mac OS ###
 .DS_Store
 
+### 本地 Nginx 运行产物（日志、pid、临时目录） ###
+deploy/nginx/logs/
+deploy/nginx/temp/
+
 ### 本地的开发文档与讲解（只做阅读用，不进仓库） ###
 # 这三份是开发过程中的工作文档：开发计划、admin/project 两个模块的开发记录。
 # 保留在磁盘上供查阅，但不纳入版本管理 —— 它们的内容随每次开发变动，
