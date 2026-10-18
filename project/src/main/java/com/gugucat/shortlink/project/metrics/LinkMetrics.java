@@ -28,6 +28,7 @@ public class LinkMetrics {
     private Counter cacheMissCounter;
     private Counter notFoundCounter;
     private Counter mqSendFailCounter;
+    private Counter cacheInvalidateSendFailCounter;
 
     @PostConstruct
     public void init() {
@@ -48,6 +49,9 @@ public class LinkMetrics {
                 .register(meterRegistry);
         mqSendFailCounter = Counter.builder("clearlink.stats.mq.send.fail")
                 .description("统计消息发送失败次数")
+                .register(meterRegistry);
+        cacheInvalidateSendFailCounter = Counter.builder("clearlink.cache.invalidate.send.fail")
+                .description("缓存失效消息发送失败次数")
                 .register(meterRegistry);
     }
 
@@ -91,5 +95,12 @@ public class LinkMetrics {
      */
     public void recordMqSendFail() {
         mqSendFailCounter.increment();
+    }
+
+    /**
+     * 记录一次缓存失效消息发送失败
+     */
+    public void recordCacheInvalidateSendFail() {
+        cacheInvalidateSendFailCounter.increment();
     }
 }

@@ -20,6 +20,7 @@ import com.gugucat.shortlink.project.common.convention.exception.ServiceExceptio
 import com.gugucat.shortlink.project.common.enums.ValidDateTypeEnum;
 import com.gugucat.shortlink.project.config.CreateDomainConfiguration;
 import com.gugucat.shortlink.project.config.GotoDomainWhiteListConfiguration;
+import com.gugucat.shortlink.project.common.enums.CacheInvalidateReasonEnum;
 import com.gugucat.shortlink.project.dao.entity.GroupDO;
 import com.gugucat.shortlink.project.dao.entity.LinkChangeLogDO;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkDO;
@@ -28,6 +29,7 @@ import com.gugucat.shortlink.project.dao.mapper.LinkChangeLogMapper;
 import com.gugucat.shortlink.project.dao.mapper.LinkGroupMapper;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkGotoMapper;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkMapper;
+import com.gugucat.shortlink.project.dto.biz.CacheInvalidateMessageDTO;
 import com.gugucat.shortlink.project.dto.biz.ShortLinkStatsRecordDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkBatchCreateReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkCreateReqDTO;
@@ -40,9 +42,11 @@ import com.gugucat.shortlink.project.dto.resp.ShortLinkCreateRespDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
 import com.gugucat.shortlink.project.generator.ShortCodeGenerator;
 import com.gugucat.shortlink.project.metrics.LinkMetrics;
+import com.gugucat.shortlink.project.mq.CacheInvalidateMessageProducer;
 import com.gugucat.shortlink.project.mq.ShortLinkStatsMessageProducer;
 import com.gugucat.shortlink.project.service.ShortLinkService;
 import com.gugucat.shortlink.project.toolkit.LinkUtil;
+import com.gugucat.shortlink.project.toolkit.TransactionUtils;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.Cookie;
@@ -94,6 +98,8 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
     // 短码生成算法通过接口注入：默认号段发号器，可通过配置切回旧的哈希实现
     private final ShortCodeGenerator shortCodeGenerator;
     private final LinkMetrics linkMetrics;
+    // 延时双删：写操作提交后发一条延时消息，消费端再删一次缓存
+    private final CacheInvalidateMessageProducer cacheInvalidateMessageProducer;
 
     @Value("${short-link.domain.default}")
     private String createShortLinkDefaultDomain;
@@ -325,6 +331,14 @@ public class ShortLinkServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLink
                 stringRedisTemplate.delete(String.format(RedisKeyConstant.GOTO_IS_NULL_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
             }
         }
+        // 延时双删：第一次删除已经完成，这里在事务提交后再发一条延时消息。
+        // 如果先发消息再提交，消费端可能删在提交之前，竞态仍然存在
+        CacheInvalidateMessageDTO invalidateMessage = CacheInvalidateMessageDTO.builder()
+                .fullShortUrl(requestParam.getFullShortUrl())
+                .reason(CacheInvalidateReasonEnum.UPDATE.getReason())
+                .traceId(TraceContext.getTraceId())
+                .build();
+        TransactionUtils.afterCommit(() -> cacheInvalidateMessageProducer.send(invalidateMessage));
     }
 
     @SneakyThrows   // sendRedirect 声明了受检的 IOException，而接口方法没有 throws

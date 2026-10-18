@@ -7,19 +7,24 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.gugucat.shortlink.project.common.biz.trace.TraceContext;
 import com.gugucat.shortlink.project.common.biz.user.UserContext;
 import com.gugucat.shortlink.project.common.constant.RedisKeyConstant;
 import com.gugucat.shortlink.project.common.convention.exception.ClientException;
+import com.gugucat.shortlink.project.common.enums.CacheInvalidateReasonEnum;
 import com.gugucat.shortlink.project.dao.entity.GroupDO;
 import com.gugucat.shortlink.project.dao.entity.ShortLinkDO;
 import com.gugucat.shortlink.project.dao.mapper.LinkGroupMapper;
 import com.gugucat.shortlink.project.dao.mapper.ShortLinkMapper;
+import com.gugucat.shortlink.project.dto.biz.CacheInvalidateMessageDTO;
 import com.gugucat.shortlink.project.dto.req.RecycleBinRecoverReqDTO;
 import com.gugucat.shortlink.project.dto.req.RecycleBinRemoveReqDTO;
 import com.gugucat.shortlink.project.dto.req.RecycleBinSaveReqDTO;
 import com.gugucat.shortlink.project.dto.req.ShortLinkRecycleBinPageReqDTO;
 import com.gugucat.shortlink.project.dto.resp.ShortLinkPageRespDTO;
+import com.gugucat.shortlink.project.mq.CacheInvalidateMessageProducer;
 import com.gugucat.shortlink.project.service.RecycleBinService;
+import com.gugucat.shortlink.project.toolkit.TransactionUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -36,6 +41,7 @@ public class RecycleBinServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLin
 
     private final StringRedisTemplate stringRedisTemplate;
     private final LinkGroupMapper linkGroupMapper;
+    private final CacheInvalidateMessageProducer cacheInvalidateMessageProducer;
 
     @Override
     public void saveRecycleBin(RecycleBinSaveReqDTO requestParam) {
@@ -64,6 +70,8 @@ public class RecycleBinServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLin
         // 移入回收站后这条短链接就不能再跳转了，缓存必须立刻失效，
         // 否则用户点进去还能访问一个「已删除」的链接（缓存的 TTL 可能长达 30 天）
         stringRedisTemplate.delete(String.format(RedisKeyConstant.GOTO_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
+        // 第一次删除完成后再发延时消息：清掉并发读在删除之后回填的旧跳转缓存
+        sendCacheInvalidateMessage(requestParam.getFullShortUrl(), CacheInvalidateReasonEnum.RECYCLE_SAVE);
     }
 
     @Override
@@ -87,6 +95,8 @@ public class RecycleBinServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLin
         // 必须删掉空值缓存：这条短链接在回收站期间如果被访问过，跳转链路会写下
         // 一个 30 分钟的「不存在」标记；不删的话，恢复之后它最多还有 30 分钟跳不了
         stringRedisTemplate.delete(String.format(RedisKeyConstant.GOTO_IS_NULL_SHORT_LINK_KEY, requestParam.getFullShortUrl()));
+        // 恢复后仍可能有并发读把「不存在」或旧值写回缓存，同样延时再删一次
+        sendCacheInvalidateMessage(requestParam.getFullShortUrl(), CacheInvalidateReasonEnum.RECYCLE_RECOVER);
     }
 
     @Override
@@ -111,8 +121,9 @@ public class RecycleBinServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLin
         if (baseMapper.update(delShortLinkDO, updateWrapper) < 1) {
             throw new ClientException("短链接不存在或不在回收站中");
         }
-        // 不需要清理缓存：跳转缓存在移入回收站时就已经删了；
-        // 若之后有人访问过，写下的空值缓存恰好是正确答案（这条短链接确实已经不存在了）
+        // 跳转缓存在移入回收站时已删；但移除与移入之间可能有并发读把旧值写回，
+        // 仍然发一条延时删除消息兜底
+        sendCacheInvalidateMessage(requestParam.getFullShortUrl(), CacheInvalidateReasonEnum.RECYCLE_REMOVE);
     }
 
     @Override
@@ -127,6 +138,24 @@ public class RecycleBinServiceImpl extends ServiceImpl<ShortLinkMapper, ShortLin
             result.setDomain("http://" + result.getDomain());
             return result;
         });
+    }
+
+    /**
+     * 发送延时缓存失效消息
+     * <p>
+     * 回收站操作没有事务，afterCommit 会立即执行；保留这个包装是为了将来
+     * 如果给这些方法加上事务，消息仍然只在提交后发送。
+     *
+     * @param fullShortUrl 完整短链接
+     * @param reason       失效原因
+     */
+    private void sendCacheInvalidateMessage(String fullShortUrl, CacheInvalidateReasonEnum reason) {
+        CacheInvalidateMessageDTO message = CacheInvalidateMessageDTO.builder()
+                .fullShortUrl(fullShortUrl)
+                .reason(reason.getReason())
+                .traceId(TraceContext.getTraceId())
+                .build();
+        TransactionUtils.afterCommit(() -> cacheInvalidateMessageProducer.send(message));
     }
 
     /**

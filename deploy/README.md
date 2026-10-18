@@ -119,6 +119,25 @@ java -jar gateway/target/clearlink-gateway.jar \
 | `short-link.reconcile.max-detail-size` | `200` | 报告里最多保存多少条不一致明细 |
 | `short-link.reconcile.allowed-operators` | `admin` | 允许手动触发对账的用户名，逗号分隔 |
 
+### 缓存一致性（延时双删）
+
+修改短链、移入/恢复/移除回收站后，先立即删除一次跳转缓存，再发送一条 RocketMQ
+延时消息（默认等级 2 = 5 秒）删除第二次，用于清掉并发读在竞态窗口里回填的旧值。
+延时消息在数据库事务提交后发送；消费端删除是幂等的。
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `short-link.cache-invalidate.enabled` | `true` | 延时双删开关；关闭后只保留第一次立即删除 |
+| `short-link.cache-invalidate.delay-level` | `2` | RocketMQ 延时等级，2 对应 5 秒 |
+| `short-link.cache-invalidate.topic` | `clearlink-cache-invalidate-topic` | 失效消息 Topic |
+| `short-link.cache-invalidate.producer-group` | `clearlink-cache-invalidate-producer-group` | 生产者组 |
+| `short-link.cache-invalidate.consumer-group` | `clearlink-cache-invalidate-consumer-group` | 消费者组 |
+| `short-link.cache-invalidate.max-reconsume-times` | `8` | 删除失败最大重试次数 |
+
+- RocketMQ 不可用时，第一次立即删除仍然生效，发送失败记录日志与
+  `clearlink_cache_invalidate_send_fail_total` 指标；不会影响业务成功与否。
+- 只想保留第一次删除时，加 `--short-link.cache-invalidate.enabled=false`。
+
 `prod` profile 的关键配置见
 `aggregation/src/main/resources/application-prod.yaml`：
 
@@ -204,6 +223,13 @@ curl -s -X POST "http://clearlink.test/api/clearlink/v0.1/reconcile/run?bizDate=
 # 12. 查询对账报告
 curl -s "http://clearlink.test/api/clearlink/v0.1/reconcile/page?current=1&size=10&bizDate=2026-10-17" \
   -H 'username: admin' -H 'token: <token>'
+
+# 13. 延时双删验证：
+#     修改一条已缓存的短链后，手动把旧值写回缓存（模拟并发读回填），
+#     5 秒后缓存应被延时消息删除
+redis-cli -h 127.0.0.1 -a 123456 SET "clearlink:goto:clearlink.test/<短码>" "旧链接" EX 600
+# 等待 6~8 秒后检查，期望返回 0
+redis-cli -h 127.0.0.1 -a 123456 EXISTS "clearlink:goto:clearlink.test/<短码>"
 ```
 
 ## 七、真实服务器部署要点

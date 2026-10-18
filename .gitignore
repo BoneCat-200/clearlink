@@ -45,6 +45,7 @@ deploy/nginx/temp/
 deploy/rocketmq/store/
 deploy/rocketmq/logs/
 deploy/rocketmq/*.out
+deploy/rocketmq/*.err
 
 ### 功能点说明文档（本地，不提交） ###
 功能点说明/

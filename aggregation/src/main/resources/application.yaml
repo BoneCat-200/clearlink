@@ -74,6 +74,16 @@ short-link:
       consumer-group: clearlink-stats-consumer-group
       # 超过该次数仍消费失败，消息进入 %DLQ%clearlink-stats-consumer-group
       max-reconsume-times: 16
+  cache-invalidate:
+    # 延时双删开关：关闭后只保留写操作后的第一次立即删除
+    enabled: true
+    # RocketMQ 延时等级：默认等级表 1s 5s 10s 30s ...，2 对应 5 秒
+    delay-level: 2
+    topic: clearlink-cache-invalidate-topic
+    producer-group: clearlink-cache-invalidate-producer-group
+    consumer-group: clearlink-cache-invalidate-consumer-group
+    # 删除失败后的最大重试次数，超限进入 %DLQ%
+    max-reconsume-times: 8
   domain:
     # 直接访问聚合端口时使用的域名；线上由 prod profile 覆盖为公网域名
     default: 127.0.0.1:8003
