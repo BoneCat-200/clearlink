@@ -83,6 +83,29 @@ java -jar gateway/target/clearlink-gateway.jar \
 > 现在必须携带一次性幂等 Token。临时回滚可加启动参数
 > `--short-link.idempotent.enabled=false`。
 
+### 网关限流、熔断与超时
+
+网关对每条 API 路由挂三层保护：`TokenValidate → UserRateLimit → CircuitBreaker`。
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `short-link.gateway.rate-limit.admin.replenish-rate` | `20` | 管理端每秒补充令牌数 |
+| `short-link.gateway.rate-limit.admin.burst-capacity` | `40` | 管理端令牌桶容量（允许的瞬时突发） |
+| `short-link.gateway.rate-limit.project.replenish-rate` | `100` | 中台每秒补充令牌数 |
+| `short-link.gateway.rate-limit.project.burst-capacity` | `200` | 中台令牌桶容量 |
+| `short-link.gateway.http.connect-timeout-ms` | `2000` | 连接下游超时 |
+| `short-link.gateway.http.response-timeout` | `5s` | 等待下游响应的超时 |
+| `short-link.gateway.resilience.timeout-ms` | `4000` | Resilience4j 单次调用超时（先于响应超时触发） |
+| `short-link.gateway.resilience.failure-rate-threshold` | `50` | 失败率达到多少百分比后打开熔断器 |
+| `short-link.gateway.resilience.wait-duration-in-open-state-ms` | `10000` | 熔断器打开时长 |
+| `short-link.gateway.resilience.minimum-number-of-calls` | `10` | 窗口中至少多少次调用才开始统计失败率 |
+
+- 限流按「已登录用户 / 未登录 IP」分桶，超限返回 HTTP 429 +
+  `{"code":"A000300","message":"请求过于频繁，请稍后再试",...}`。
+- 熔断或超时返回 HTTP 503 + `{"code":"C000001","message":"下游服务暂时不可用，请稍后再试",...}`。
+- `RedisRateLimiter` 对 Redis 脚本执行失败的处理是 **fail-open（放行）**；
+  本实现只对「策略未注册」这类配置异常返回 503。要求 Redis 故障时拒绝请求的话需要自研限流器。
+
 `prod` profile 的关键配置见
 `aggregation/src/main/resources/application-prod.yaml`：
 
@@ -147,6 +170,19 @@ curl -s -i http://clearlink.test/<短码>
 
 # 7. 运维端点（只暴露 health/info/prometheus）
 curl -s http://clearlink.test/actuator/health
+
+# 8. 限流验证：把 admin 额度临时调成 1/s、burst 1 启动网关后，
+#    连续两次请求，第二次应返回 HTTP 429 与 code=A000300
+curl -s -i "http://clearlink.test/api/clearlink/admin/v0.1/group" \
+  -H 'username: admin' -H 'token: <token>'
+
+# 9. 熔断验证：停掉聚合服务后持续请求，应返回 HTTP 503 与 code=C000001；
+#    恢复聚合服务并等待熔断打开时长（默认 10s）后自动恢复
+curl -s -i "http://clearlink.test/api/clearlink/admin/v0.1/group" \
+  -H 'username: admin' -H 'token: <token>'
+
+# 10. 熔断状态与失败率（Prometheus 指标）
+curl -s http://clearlink.test/actuator/prometheus | grep resilience4j_circuitbreaker_state
 ```
 
 ## 七、真实服务器部署要点

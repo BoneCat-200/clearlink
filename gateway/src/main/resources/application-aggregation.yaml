@@ -15,6 +15,14 @@ spring:
                 whitePathList:
                   - /api/clearlink/admin/v0.1/user/login
                   - /api/clearlink/admin/v0.1/user/has-username
+            # 顺序有意义：TokenValidate 先校验登录态，限流才能安全地按 username 分桶
+            - name: UserRateLimit
+              args:
+                policy: admin
+            - name: CircuitBreaker
+              args:
+                name: clearlinkAdminCircuitBreaker
+                fallbackUri: forward:/fallback
 
         - id: clearlink-aggregation-project
           uri: lb://clearlink-aggregation
@@ -22,3 +30,10 @@ spring:
             - Path=/api/clearlink/**
           filters:
             - name: TokenValidate
+            - name: UserRateLimit
+              args:
+                policy: project
+            - name: CircuitBreaker
+              args:
+                name: clearlinkProjectCircuitBreaker
+                fallbackUri: forward:/fallback

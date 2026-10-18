@@ -21,6 +21,35 @@ spring:
     nacos:
       discovery:
         server-addr: 127.0.0.1:8848
+    gateway:
+      httpclient:
+        # 连接超时：目标实例不可达时不无限等待
+        connect-timeout: ${short-link.gateway.http.connect-timeout-ms:2000}
+        # 响应超时：比 Resilience4j 的 TimeLimiter 略长，让熔断器先触发、统一走降级响应
+        response-timeout: ${short-link.gateway.http.response-timeout:5s}
+
+short-link:
+  gateway:
+    http:
+      connect-timeout-ms: 2000
+      response-timeout: 5s
+    rate-limit:
+      # admin 是管理端流量，额度低一些；project 同时承担 API 调用，额度高一些
+      admin:
+        replenish-rate: 20
+        burst-capacity: 40
+        requested-tokens: 1
+      project:
+        replenish-rate: 100
+        burst-capacity: 200
+        requested-tokens: 1
+    resilience:
+      sliding-window-size: 20
+      minimum-number-of-calls: 10
+      failure-rate-threshold: 50
+      wait-duration-in-open-state-ms: 10000
+      permitted-number-of-calls-in-half-open-state: 3
+      timeout-ms: 4000
 
 logging:
   pattern:

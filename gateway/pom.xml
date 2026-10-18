@@ -36,6 +36,19 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <!-- 响应式 Redis：Token 校验不再阻塞 Netty 事件循环；
+             同时 Spring Cloud Gateway 的 RedisRateLimiter 依赖 ReactiveStringRedisTemplate -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+        </dependency>
+
+        <!-- 熔断降级与超时：Resilience4j 实现的 Spring Cloud CircuitBreaker -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
+        </dependency>
+
         <!-- 生成 401 响应体 -->
         <dependency>
             <groupId>com.alibaba.fastjson2</groupId>

@@ -8,7 +8,7 @@ import com.gugucat.shortlink.gateway.util.TraceIdUtils;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
 import org.springframework.core.io.buffer.DataBufferFactory;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
@@ -45,11 +45,15 @@ public class TokenValidateGatewayFilterFactory extends AbstractGatewayFilterFact
      */
     private static final String USER_REGISTER_PATH = "/api/clearlink/admin/v0.1/user";
 
-    private final StringRedisTemplate stringRedisTemplate;
+    /**
+     * 用响应式模板而不是阻塞的 StringRedisTemplate：
+     * 网关跑在 Netty 事件循环上，一次阻塞的 Redis 查询就会卡住同一线程上的所有请求。
+     */
+    private final ReactiveStringRedisTemplate reactiveStringRedisTemplate;
 
-    public TokenValidateGatewayFilterFactory(StringRedisTemplate stringRedisTemplate) {
+    public TokenValidateGatewayFilterFactory(ReactiveStringRedisTemplate reactiveStringRedisTemplate) {
         super(TokenValidateFilterConfig.class);
-        this.stringRedisTemplate = stringRedisTemplate;
+        this.reactiveStringRedisTemplate = reactiveStringRedisTemplate;
     }
 
     @Override
@@ -67,23 +71,29 @@ public class TokenValidateGatewayFilterFactory extends AbstractGatewayFilterFact
             if (!StringUtils.hasText(username) || !StringUtils.hasText(token)) {
                 return unauthorized(exchange.getResponse(), "请先登录", traceId);
             }
-            Object userInfoJsonStr = stringRedisTemplate.opsForHash().get(USER_LOGIN_KEY + username, token);
-            if (userInfoJsonStr == null) {
-                return unauthorized(exchange.getResponse(), "登录已过期，请重新登录", traceId);
-            }
-            JSONObject userInfo = JSON.parseObject(userInfoJsonStr.toString());
-            // 下游用的是 username/userId/realName 三个头：
-            // userId、realName 由网关按登录态写入，覆盖客户端传来的同名头
-            ServerHttpRequest mutatedRequest = request.mutate()
-                    .headers(headers -> {
-                        headers.set("userId", userInfo.getString("id"));
-                        // HTTP 头按 ISO-8859-1 传输，中文真实姓名必须编码，否则会被容器拒绝
-                        headers.set("realName", URLEncoder.encode(
-                                userInfo.getString("realName") == null ? "" : userInfo.getString("realName"),
-                                StandardCharsets.UTF_8));
-                    })
-                    .build();
-            return chain.filter(exchange.mutate().request(mutatedRequest).build());
+            // defaultIfEmpty 用来区分「没查到」与「查到了空值」：
+            // 直接对 flatMap 的结果 switchIfEmpty 会被 chain.filter 的 Mono<Void> 误触发
+            return reactiveStringRedisTemplate.<String, String>opsForHash()
+                    .get(USER_LOGIN_KEY + username, token)
+                    .defaultIfEmpty("")
+                    .flatMap(userInfoJsonStr -> {
+                        if (!StringUtils.hasText(userInfoJsonStr)) {
+                            return unauthorized(exchange.getResponse(), "登录已过期，请重新登录", traceId);
+                        }
+                        JSONObject userInfo = JSON.parseObject(userInfoJsonStr);
+                        // 下游用的是 username/userId/realName 三个头：
+                        // userId、realName 由网关按登录态写入，覆盖客户端传来的同名头
+                        ServerHttpRequest mutatedRequest = request.mutate()
+                                .headers(headers -> {
+                                    headers.set("userId", userInfo.getString("id"));
+                                    // HTTP 头按 ISO-8859-1 传输，中文真实姓名必须编码，否则会被容器拒绝
+                                    headers.set("realName", URLEncoder.encode(
+                                            userInfo.getString("realName") == null ? "" : userInfo.getString("realName"),
+                                            StandardCharsets.UTF_8));
+                                })
+                                .build();
+                        return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                    });
         };
     }
 
