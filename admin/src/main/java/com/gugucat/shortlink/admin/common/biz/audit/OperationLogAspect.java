@@ -67,7 +67,9 @@ public class OperationLogAspect {
         String path = request == null ? null : request.getRequestURI();
         String requestMethod = request == null ? null : request.getMethod();
         String ip = resolveIp(request);
-        String userAgent = request == null ? null : StrUtil.maxLength(request.getHeader("User-Agent"), 512);
+        // 不能使用 StrUtil.maxLength：它会在截断后追加 "..."，最多 515 个字符，
+        // 写 user_agent varchar(512) 会报 Data too long，整条审计都落不了库
+        String userAgent = request == null ? null : StrUtil.subPre(request.getHeader("User-Agent"), 512);
 
         long start = System.currentTimeMillis();
         String responseCode = Result.SUCCESS_CODE;
@@ -115,18 +117,21 @@ public class OperationLogAspect {
         try {
             OperationLogDO operationLogDO = OperationLogDO.builder()
                     .traceId(traceId)
-                    .username(username)
+                    // 以下字段都可能来自外部输入，按表结构宽度精确截断：
+                    // 审计写入是异步的，一旦字段超长整条审计都会丢，不能只依赖业务层的默认长度
+                    .username(StrUtil.subPre(username, 64))
                     .userId(userId)
                     .module(operationLog.module())
                     .action(operationLog.action())
                     .javaMethod(joinPoint.getSignature().getName())
-                    .path(path)
+                    .path(StrUtil.subPre(path, 256))
                     .requestMethod(requestMethod)
                     .requestParams(requestParams)
                     .responseCode(responseCode)
                     .success(success)
-                    .errorMessage(StrUtil.maxLength(errorMessage, 512))
-                    .ip(ip)
+                    // 同上：error_message 也是 varchar(512)，必须精确截断而不是追加省略号
+                    .errorMessage(StrUtil.subPre(errorMessage, 512))
+                    .ip(StrUtil.subPre(ip, 64))
                     .userAgent(userAgent)
                     .costMs(costMs)
                     .createTime(LocalDateTime.now())
