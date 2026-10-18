@@ -38,6 +38,7 @@ mvn -f pom.xml -pl aggregation,gateway -am clean package -DskipTests
 ```bash
 mysql -h127.0.0.1 -uroot -p123456 < deploy/sql/t_segment.sql
 mysql -h127.0.0.1 -uroot -p123456 < deploy/sql/t_operation_log.sql
+mysql -h127.0.0.1 -uroot -p123456 < deploy/sql/t_reconcile_report.sql
 ```
 
 `t_segment` 是号段发号器的元数据，**单表、不参与分片**，重复执行不会覆盖已有进度。
@@ -105,6 +106,18 @@ java -jar gateway/target/clearlink-gateway.jar \
 - 熔断或超时返回 HTTP 503 + `{"code":"C000001","message":"下游服务暂时不可用，请稍后再试",...}`。
 - `RedisRateLimiter` 对 Redis 脚本执行失败的处理是 **fail-open（放行）**；
   本实现只对「策略未注册」这类配置异常返回 503。要求 Redis 故障时拒绝请求的话需要自研限流器。
+
+### 统计对账
+
+每天 02:10 对账前一天的统计：比较 `t_link_stats_today.today_pv` 与
+`t_link_access_stats` 按小时累加的 PV。**UV/UIP 是去重指标，不参与对账**。
+报告写入 `t_reconcile_report`，同一业务日期用分布式锁保证同时只有一个任务。
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `short-link.reconcile.cron` | `0 10 2 * * ?` | 定时对账 cron |
+| `short-link.reconcile.max-detail-size` | `200` | 报告里最多保存多少条不一致明细 |
+| `short-link.reconcile.allowed-operators` | `admin` | 允许手动触发对账的用户名，逗号分隔 |
 
 `prod` profile 的关键配置见
 `aggregation/src/main/resources/application-prod.yaml`：
@@ -183,6 +196,14 @@ curl -s -i "http://clearlink.test/api/clearlink/admin/v0.1/group" \
 
 # 10. 熔断状态与失败率（Prometheus 指标）
 curl -s http://clearlink.test/actuator/prometheus | grep resilience4j_circuitbreaker_state
+
+# 11. 手动触发统计对账（仅白名单用户，默认 admin）
+curl -s -X POST "http://clearlink.test/api/clearlink/v0.1/reconcile/run?bizDate=2026-10-17" \
+  -H 'username: admin' -H 'token: <token>'
+
+# 12. 查询对账报告
+curl -s "http://clearlink.test/api/clearlink/v0.1/reconcile/page?current=1&size=10&bizDate=2026-10-17" \
+  -H 'username: admin' -H 'token: <token>'
 ```
 
 ## 七、真实服务器部署要点

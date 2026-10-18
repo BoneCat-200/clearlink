@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.gugucat.shortlink.project.dao.mapper.ReconcileMapper">
+
+    <!--
+      对账口径：只比较 PV。
+      t_link_stats_today 每个短链接每天一行，t_link_access_stats 每个短链接每小时一行；
+      UV/UIP 是去重指标，按小时相加会重复计数，不能参与对账。
+      两张表任一存在该短链接就参与对账，缺失的一侧按 0 处理。
+    -->
+    <sql id="reconcileRows">
+        SELECT k.full_short_url,
+               COALESCE(a.access_pv, 0) AS access_pv,
+               COALESCE(t.today_pv, 0) AS today_pv
+        FROM (
+            SELECT full_short_url FROM t_link_stats_today WHERE `date` = #{bizDate}
+            UNION
+            SELECT full_short_url FROM t_link_access_stats WHERE `date` = #{bizDate}
+        ) k
+        LEFT JOIN (
+            SELECT full_short_url, SUM(pv) AS access_pv
+            FROM t_link_access_stats
+            WHERE `date` = #{bizDate}
+            GROUP BY full_short_url
+        ) a ON a.full_short_url = k.full_short_url
+        LEFT JOIN t_link_stats_today t
+            ON t.full_short_url = k.full_short_url
+            AND t.`date` = #{bizDate}
+    </sql>
+
+    <!-- 汇总：一次查询拿到参与数和不一致数，避免把全量明细拉到应用层 -->
+    <select id="selectSummary" resultType="com.gugucat.shortlink.project.dto.biz.ReconcileSummaryDTO">
+        SELECT COUNT(*) AS totalLinks,
+               COALESCE(SUM(CASE WHEN x.access_pv &lt;&gt; x.today_pv THEN 1 ELSE 0 END), 0) AS mismatchLinks
+        FROM (
+            <include refid="reconcileRows"/>
+        ) x
+    </select>
+
+    <!-- 明细：报告只保存前 N 条，按差值绝对值倒序，差得最多的先暴露 -->
+    <select id="selectMismatchList" resultType="com.gugucat.shortlink.project.dto.biz.ReconcileMismatchDTO">
+        SELECT x.full_short_url AS fullShortUrl,
+               x.access_pv AS accessPv,
+               x.today_pv AS todayPv,
+               (x.access_pv - x.today_pv) AS diff
+        FROM (
+            <include refid="reconcileRows"/>
+        ) x
+        WHERE x.access_pv &lt;&gt; x.today_pv
+        ORDER BY ABS(x.access_pv - x.today_pv) DESC, x.full_short_url
+        LIMIT #{limit}
+    </select>
+</mapper>

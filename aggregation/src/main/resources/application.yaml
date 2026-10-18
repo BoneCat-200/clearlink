@@ -93,6 +93,13 @@ short-link:
         - zhihu.com
         - juejin.cn
         - cnblogs.com
+  reconcile:
+    # 统计对账定时任务：默认每天 02:10 对账前一天
+    cron: 0 10 2 * * ?
+    # 报告里最多保存多少条不一致明细（计数本身是全量值）
+    max-detail-size: 200
+    # 允许手动触发对账的用户名，逗号分隔；定时任务不受此限制
+    allowed-operators: admin
 
 mybatis-plus:
   # 自定义 SQL 在 project 模块的 mapper 目录下，聚合后仍在同一个 classpath 上

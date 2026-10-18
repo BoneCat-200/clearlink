@@ -31,6 +31,13 @@ public class RedisKeyConstant {
     public static final String LOCK_GID_UPDATE_KEY = "clearlink:lock:update-gid:%s";
 
     /**
+     * 统计对账锁前缀 Key，后面接业务日期
+     * <p>
+     * 同一业务日期同时只允许一个对账任务，避免定时与手动触发重复写报告。
+     */
+    public static final String LOCK_RECONCILE_KEY = "clearlink:lock:reconcile:%s";
+
+    /**
      * 短链接监控消息保存队列 Topic 缓存标识
      */
     public static final String SHORT_LINK_STATS_STREAM_TOPIC_KEY = "clearlink:stats-stream";
